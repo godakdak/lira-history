@@ -386,16 +386,19 @@ const A = {
     r.spectrum = ref; r.updatedAt = nowISO(); r.stage = stage;
     return old;
   },
-  async attachSpectrumText(text, originalName, diagId, phase, stage) {
-    const data = Sig.parseSpectrum(text);
+  /** 스펙트럼 텍스트 저장. originalName이 없으면 클립보드 붙여넣기로 기록 */
+  async attachSpectrumText(text, originalName, diagId, phase, stage, parsed) {
+    const data = parsed || Sig.parseSpectrum(text);
+    const pasted = !originalName;
+    const name = pasted ? '클립보드 붙여넣기' : originalName;
     const id = uuid(), path = `spectra/${id}.txt`;
     await store.putFile(path, new Blob([text], { type: 'text/plain' }), 'text/plain');
     specCache.set(path, Promise.resolve(markRaw(data)));
-    const ref = { fileName: path, originalName, label: data.label, points: data.count, f0: data.f0, df: data.df, addedAt: nowISO(), stage, source: 'txt' };
+    const ref = { fileName: path, originalName: name, label: data.label, points: data.count, f0: data.f0, df: data.df, addedAt: nowISO(), stage, source: pasted ? 'paste' : 'txt' };
     let old = null;
     await A.updateDiagnosis(diagId, d => { old = A._setSpectrum(d, phase, ref, stage); });
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
-    return `${phase}상 ← ${originalName}`;
+    return `${phase}상 ← ${pasted ? '클립보드' + (data.label ? ' (' + data.label + ')' : '') : name}`;
   },
   /** LIRA 측정 파일 묶음(.lira 필수, .anl·.out·.sdt 선택) */
   async attachLiraGroup(g, diagId, stage, fallbackPhase) {
@@ -1517,8 +1520,8 @@ const DiagView = {
     operator() { return state.operator; },
   },
   watch: { afterCreate: { immediate: true, handler(v) { state.headerOverride = v ? { back: false, left: null, right: { label: '완료', strong: true, action: () => back() } } : null; } } },
-  mounted() { if (this.d) this.commentStage = defaultStage(this.d); },
-  beforeUnmount() { state.headerOverride = null; },
+  mounted() { if (this.d) this.commentStage = defaultStage(this.d); document.addEventListener('paste', this.onPaste); },
+  beforeUnmount() { state.headerOverride = null; document.removeEventListener('paste', this.onPaste); },
   methods: {
     fmtDay, fmtDayTime, fmtDG, toLocalInput, specText, refSummary,
     upd(fn) { return A.updateDiagnosis(this.id, fn); },
@@ -1580,6 +1583,62 @@ const DiagView = {
       else if (done.length) toast(done[0]);
     },
     async removeSpec(ph) { if (await confirmBox(`${ph}상 스펙트럼을 삭제할까요?`, '삭제', true)) A.removeSpectrum(this.id, ph); },
+    /** 클립보드 읽기: 브라우저가 허용하면 바로, 아니면 붙여넣기 창 */
+    async readClipboard() {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const t = await navigator.clipboard.readText();
+          if (t && t.trim()) return t;
+        }
+      } catch { /* 권한 거부·미지원 → 붙여넣기 창 */ }
+      const v = await dialog({
+        title: '스펙트럼 붙여넣기', text: 'LIRA에서 클립보드로 복사한 스펙트럼을 아래 칸에 붙여넣으세요 (Ctrl+V).',
+        textarea: true, submitOnPaste: true, placeholder: 'frequency (Hz) - …\tImp. phase (deg) - …\n500.0\t-86.4\n1.0k\t-87.6\n…',
+        buttons: [{ label: '취소', value: false }, { label: '확인', value: 'check', prim: true }],
+      });
+      return typeof v === 'string' && v.trim() ? v : null;
+    },
+    async pasteSpectrum(phase) {
+      const text = await this.readClipboard();
+      if (text) await this.attachPasted(text, phase);
+    },
+    /** 붙여넣은 텍스트 → 형식 확인 → (상 선택·교체 확인·중복 확인) → 저장 */
+    async attachPasted(text, phase) {
+      let data;
+      try { data = Sig.parseSpectrum(text); }
+      catch (e) { await alertBox('붙여넣기 실패', `${e.message}\n\nLIRA에서 스펙트럼을 클립보드로 복사했는지 확인하세요.`); return; }
+      const info = `${data.label || '측정 이름 없음'}\n${data.count}점 · ${(data.f0 / 1e6).toFixed(2)}–${(data.maxFreq / 1e6).toFixed(1)} MHz`;
+      if (!phase) {
+        phase = await dialog({
+          title: '어느 상의 스펙트럼인가요?', text: info,
+          buttons: [...PHASES.map(p => ({ label: p + '상' + (this.r(p)?.spectrum ? '(교체)' : ''), value: p, prim: true })), { label: '취소', value: null }],
+        });
+        if (!phase) return;
+      } else if (this.r(phase)?.spectrum) {
+        const ok = await dialog({ title: `${phase}상 스펙트럼 교체`, text: `이미 있는 ${phase}상 스펙트럼을 붙여넣은 내용으로 바꿀까요?\n\n${info}`, buttons: [{ label: '취소', value: false }, { label: '바꾸기', value: true, prim: true }] });
+        if (!ok) return;
+      }
+      // 같은 측정을 다른 상에 이미 넣었다면 (다음 상 복사를 잊은 경우) 확인
+      const dup = data.label && PHASES.find(p => p !== phase && this.r(p)?.spectrum?.label === data.label);
+      if (dup) {
+        const ok = await dialog({ title: '같은 측정 데이터', text: `붙여넣은 데이터가 ${dup}상에 이미 넣은 측정과 같습니다.\n(${data.label})\n\nLIRA에서 ${phase}상을 복사했는지 확인하세요.`, buttons: [{ label: '취소', value: false, prim: true }, { label: '그래도 넣기', value: true }] });
+        if (!ok) return;
+      }
+      try {
+        state.busy = `${phase}상 스펙트럼 저장 중`;
+        toast(await A.attachSpectrumText(text, null, this.id, phase, defaultStage(this.d), data));
+      } catch (e) { reportError(e); } finally { state.busy = ''; }
+    },
+    /** 화면에서 Ctrl+V (입력칸 밖) → 스펙트럼 붙여넣기 */
+    onPaste(e) {
+      if (state.dialog || state.busy || !this.d) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      const text = e.clipboardData && e.clipboardData.getData('text/plain');
+      if (!text || !text.trim()) return;
+      e.preventDefault();
+      this.attachPasted(text, null);
+    },
     async addComment() {
       const text = this.commentText.trim(); if (!text) return;
       await this.upd(d => { d.comments.push({ id: uuid(), text, author: state.operator, at: nowISO(), stage: this.commentStage }); });
@@ -1623,11 +1682,14 @@ const DiagView = {
 
     <div class="sec"><div class="sec-h">스펙트럼 데이터</div><div class="card">
       <div class="dropzone" :class="{over: dragOver}" @dragover.prevent="dragOver = true" @dragleave="dragOver = false" @drop.prevent="onDrop">
-        <button class="btn prim" @click="pickFiles('*')">📂 LIRA 측정 파일 한 번에 불러오기</button>
-        <div style="margin-top:6px">.lira·.anl·.out·.sdt (여러 상 동시) 또는 스펙트럼 텍스트(.txt)<br>PC에서는 파일을 여기로 끌어다 놓아도 됩니다.</div>
+        <div class="btnrow" style="justify-content:center">
+          <button class="btn prim" @click="pickFiles('*')">📂 LIRA 측정 파일 한 번에 불러오기</button>
+          <button class="btn" @click="pasteSpectrum(null)">📋 클립보드 붙여넣기</button>
+        </div>
+        <div style="margin-top:6px">.lira·.anl·.out·.sdt 또는 스펙트럼 텍스트(.txt)<br>PC에서는 파일을 여기로 끌어다 놓아도 됩니다.</div>
       </div>
       <input ref="files" type="file" multiple class="hidden" accept=".lira,.anl,.out,.sdt,.txt,.tsv,.csv,text/plain,application/octet-stream" @change="onFiles">
-    </div><div class="sec-f">LIRA 측정 폴더의 같은 이름 파일(.lira·.anl·.out·.sdt)을 함께 고르면 상(측정 설명의 Phase A/B/C/N), DeltaG, 긍장, 분석대역, LIRA 정규화 기준선을 자동으로 가져옵니다. 텍스트 파일은 이름 끝의 _A·_B·_C·_N으로 상을 구분합니다.</div></div>
+    </div><div class="sec-f">LIRA 측정 폴더의 같은 이름 파일(.lira·.anl·.out·.sdt)을 함께 고르면 상(측정 설명의 Phase A/B/C/N), DeltaG, 긍장, 분석대역, LIRA 정규화 기준선을 자동으로 가져옵니다. 텍스트 파일은 이름 끝의 _A·_B·_C·_N으로 상을 구분합니다. LIRA에서 클립보드로 복사한 스펙트럼은 📋 붙여넣기 버튼을 누르거나 이 화면에서 Ctrl+V로 바로 넣을 수 있습니다.</div></div>
 
     <div class="sec" v-for="ph in d.phases" :key="ph"><div class="sec-h">{{ ph }}상 결과</div><div class="card">
       <div class="field"><label>DeltaG</label>
@@ -1639,14 +1701,17 @@ const DiagView = {
         <div class="row" style="display:block">
           <div class="btnrow" style="justify-content:space-between;flex-wrap:nowrap">
             <b class="small" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">〰 {{ r(ph).spectrum.originalName }}</b>
-            <span class="btnrow" style="flex:none;flex-wrap:nowrap"><button class="btn small" @click="pickFiles(ph)">교체</button><button class="btn small danger" @click="removeSpec(ph)">삭제</button></span>
+            <span class="btnrow" style="flex:none;flex-wrap:nowrap"><button class="btn small" @click="pickFiles(ph)">교체</button><button class="btn small" @click="pasteSpectrum(ph)" title="클립보드 붙여넣기">📋</button><button class="btn small danger" @click="removeSpec(ph)">삭제</button></span>
           </div>
           <div class="xs sub mono" style="margin:2px 0 6px">{{ refSummary(r(ph).spectrum) }}{{ r(ph).spectrum.label ? ' · ' + r(ph).spectrum.label : '' }}{{ r(ph).spectrum.lira ? ' · LIRA 파일' : '' }}</div>
           <signature-preview :ref-obj="r(ph).spectrum" :site="site" :phase="ph"></signature-preview>
           <div style="margin-top:6px"><button class="linkbtn small" @click="go('/compare/' + d.siteId + '?focus=' + d.id)">🎚 Signature 뷰어에서 대역폭 조절·비교 ›</button></div>
         </div>
       </template>
-      <div class="row" v-else><button class="linkbtn" @click="pickFiles(ph)">📄 {{ ph }}상 스펙트럼 파일 불러오기</button></div>
+      <div class="row btnrow" v-else>
+        <button class="btn" @click="pickFiles(ph)">📄 {{ ph }}상 스펙트럼 파일</button>
+        <button class="btn" @click="pasteSpectrum(ph)">📋 붙여넣기</button>
+      </div>
       <photo-grid v-if="r(ph) && r(ph).signatures.length" :photos="r(ph).signatures" big @open="viewing = {photo: $event, sig: true}"></photo-grid>
       <div class="row"><photo-add library-title="화면 사진" camera-title="화면 촬영" :max="4" @add="addSigs(ph, $event)"></photo-add></div>
       <div class="row xs sub" v-if="r(ph) && r(ph).stage && r(ph).updatedAt">최근 입력: {{ r(ph).stage }} · {{ fmtDayTime(r(ph).updatedAt) }}</div>
@@ -1878,8 +1943,20 @@ const Root = {
       return { title, back: backBtn, right, left: null, ...(state.headerOverride || {}) };
     },
   },
+  watch: {
+    's.dialog'(v) { if (v && (v.input || v.textarea)) nextTick(() => { const el = document.querySelector('.dialog textarea, .dialog input'); if (el) el.focus(); }); },
+  },
   methods: {
     back, switchTab,
+    /** 붙여넣기 창: 붙여넣는 즉시 처리 (수만 줄을 입력칸에 그리면 느려지므로 칸에 넣지 않음) */
+    dialogPaste(e) {
+      if (!state.dialog || !state.dialog.submitOnPaste) return;
+      const t = e.clipboardData && e.clipboardData.getData('text/plain');
+      if (!t || !t.trim()) return;
+      e.preventDefault();
+      state.dialog.value = t;
+      this.closeDialog('check');
+    },
     closeDialog(v) { const dlg = state.dialog; state.dialog = null; if (v === 'check') v = dlg.value; dlg.resolve(v); },
   },
   template: `<div class="shell" v-if="s.ready">
@@ -1909,6 +1986,7 @@ const Root = {
         <h3>{{ s.dialog.title }}</h3>
         <p v-if="s.dialog.text">{{ s.dialog.text }}</p>
         <input v-if="s.dialog.input" class="boxinput" style="margin-bottom:12px" v-model="s.dialog.value">
+        <textarea v-if="s.dialog.textarea" class="boxinput mono" style="margin-bottom:12px;height:180px;font-size:12px;white-space:pre;resize:vertical" v-model="s.dialog.value" :placeholder="s.dialog.placeholder || ''" @paste="dialogPaste"></textarea>
         <div class="btnrow"><button v-for="b in s.dialog.buttons" :key="b.label" class="btn" :class="{prim: b.prim, danger: b.danger}" @click="closeDialog(b.value)">{{ b.label }}</button></div>
       </div>
     </div>
