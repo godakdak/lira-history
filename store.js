@@ -109,12 +109,25 @@ class SupabaseStore {
     return data;
   }
 
+  /** 전국 공통 설정(판정 기준 등). 테이블이 없으면(setup.sql 이전 버전) { missing: true } */
+  async loadSettings(id) {
+    const { data, error } = await this.client.from('app_settings').select('data').eq('id', id).maybeSingle();
+    if (error) return { missing: true, error: error.message };
+    return { data: data ? data.data : null };
+  }
+
+  async saveSettings(id, value) {
+    const { error } = await this.client.from('app_settings').upsert({ id, data: value, updated_at: nowISO() });
+    if (error) throw new Error('설정 저장 실패: ' + error.message + ' (Supabase에서 새 setup.sql을 다시 실행해야 할 수 있습니다)');
+  }
+
   /** 다른 사용자가 저장·삭제하면 바로 반영 (Supabase Realtime) */
   subscribe(onChange) {
     try {
       this.channel = this.client.channel('lira-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, p => onChange('sites', p))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'diagnoses' }, p => onChange('diagnoses', p))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, p => onChange('app_settings', p))
         .subscribe();
     } catch (e) { console.warn('realtime off', e); }
   }
@@ -223,6 +236,12 @@ class LocalStore {
     } catch { return ''; }
   }
   async getText(path) { return (await this.getBlob(path)).text(); }
+  async loadSettings(id) {
+    try { const t = localStorage.getItem('lira-settings-' + id); return { data: t ? JSON.parse(t) : null }; } catch { return { data: null }; }
+  }
+  async saveSettings(id, value) {
+    try { localStorage.setItem('lira-settings-' + id, JSON.stringify(value)); } catch { throw new Error('이 브라우저에 설정을 저장할 수 없습니다.'); }
+  }
   subscribe() {}
   async resetAll() {
     for (const s of ['sites', 'diagnoses', 'files']) await this._tx(s, 'readwrite', os => os.clear());
