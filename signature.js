@@ -236,21 +236,26 @@ export function estimateVR(s, bandwidthHz, windowName, length) {
 }
 
 // ---------------------------------------------------------------------------
-// 감쇠 보정 + 정규화 (LIRA Normalization)
+// 감쇠 보정 + 정규화 (LIRA Normalization, Norm ON)
 //  NORM(d) = Signature(d) + slope·d − zero
 //  slope = (39 dB − 종단 반사 피크) / 종단 거리   (개방 종단 완전 반사 = 39 dB)
-//  zero  = 평균 변동 + 1 SD. LIRA 분석값(.sdt/.anl)이 있으면 그 값을, 없으면 근사식을 쓴다.
+//  zero  = 회귀선 절편 + VAR × SD  ("평균 변동 + 1 SD")
+//    감쇠 보정한 신호의 [2×분해능, 0.9×긍장] 구간에서 평균 ±1.5 SD 밖의 값(반사 피크·골)을 한 번 걸러 내고,
+//    남은 값의 평균 = 절편(LIRA처럼 0 dB 이하로 제한), 표준편차 = SD.
+//    검증: LIRA 보고서 52건 + 완주 SW1001 3건에서 LIRA 0 dB 선과 중앙값 0.5 dB 차이 (37/55건 1 dB 이내).
+//  LIRA 분석값(.sdt/.anl)이 있으면 그 값을 그대로 쓴다.
 
 export const FULL_REFLECTION_DB = 39;
+export const OUTLIER_SIGMA = 1.5;
 
-function median(a) {
-  if (!a.length) return 0;
-  const s = Array.from(a).sort((p, q) => p - q);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : 0.5 * (s[m - 1] + s[m]);
+function meanStd(a) {
+  let s = 0, s2 = 0;
+  for (const x of a) { s += x; s2 += x * x; }
+  const m = s / a.length;
+  return [m, Math.sqrt(Math.max(s2 / a.length - m * m, 0))];
 }
 
-export function makeNormalization(r, length) {
+export function makeNormalization(r, length, variance = 1) {
   if (!(length > 0) || !(r.step > 0) || r.values.length < 9) return null;
   const v = r.values;
   const i0 = Math.max(Math.floor(length * 0.85 / r.step), 1);
@@ -266,21 +271,24 @@ export function makeNormalization(r, length) {
   if (!(dEnd > 0)) return null;
   const slope = Math.max((FULL_REFLECTION_DB - peak) / dEnd, 0);
 
-  let a = 3 * r.resolutionM, e = dEnd - 3 * r.resolutionM;
-  if (e - a < 0.3 * dEnd) { a = 0.1 * dEnd; e = 0.9 * dEnd; }
+  let a = 2 * r.resolutionM, e = 0.9 * length;
+  if (e - a < 0.3 * length) { a = 0.05 * length; e = 0.9 * length; }
   const j0 = Math.max(Math.ceil(a / r.step), 0), j1 = Math.min(Math.floor(e / r.step), v.length - 1);
   if (j1 - j0 < 8) return null;
   const z = [];
   for (let j = j0; j <= j1; j++) z.push(v[j] + slope * j * r.step);
-  const med = median(z);
-  const mad = median(z.map(x => Math.abs(x - med)));
-  const sd = 0.8 * 1.4826 * mad;
-  return { endDistance: dEnd, endPeakDB: peak, slope, zeroDB: med + sd, sd, source: '앱 추정' };
+  const [m0, s0] = meanStd(z);
+  const kept = z.filter(x => Math.abs(x - m0) <= OUTLIER_SIGMA * s0);
+  const [m1, sd] = kept.length > 4 ? meanStd(kept) : [m0, s0];
+  const intercept = Math.min(m1, 0);
+  return { endDistance: dEnd, endPeakDB: peak, slope, intercept, sd, zeroDB: intercept + variance * sd, source: '앱 추정' };
 }
 
 /**
- * 화면 표시용 곡선. 감쇠 보정은 항상 적용(값 = Signature(d) + slope·d), 반전 시 d = |L − x|.
- * 정규화 시 zero를 빼고, 2SD·3SD 선 높이(+1 SD, +2 SD)를 함께 돌려준다.
+ * 화면 표시용 곡선 (LIRA Signature 탭과 같은 방식).
+ *  - Normalized OFF: Signature 그대로 (LIRA Norm OFF = NOT Normalized, 감쇠 보정 없음)
+ *  - Normalized ON : Signature(d) + slope·d − zero (감쇠 보정 + 0 dB 기준선), 반전 시 d = |L − x|
+ * 2SD·3SD 선 높이(정규화 좌표에서 +1 SD, +2 SD)를 함께 돌려준다.
  */
 export function displayTrace(r, norm, normalize, reversed, length, xMax) {
   const step = r.step;
@@ -293,12 +301,7 @@ export function displayTrace(r, norm, normalize, reversed, length, xMax) {
     const d = rev ? Math.abs(L - x) : x;
     const own = sigValueAt(r, d);
     if (own == null) continue;
-    let val = own;
-    if (norm) {
-      val += norm.slope * Math.abs(d);
-      if (normalize) val -= norm.zeroDB;
-    }
-    vals[j] = val;
+    vals[j] = normalize && norm ? own + norm.slope * Math.abs(d) - norm.zeroDB : own;
   }
   const sd = normalize && norm ? norm.sd : null;
   return { step, values: vals, sd2: sd, sd3: sd != null ? 2 * sd : null };
