@@ -48,7 +48,15 @@ function hqBounds(hq) {
 const COLORS = { orange: '#f08a00', blue: '#0a84ff', green: '#2e9e4f', purple: '#8e44ad', gray: '#8e8e93', pink: '#ff2d55', red: '#e5383b', teal: '#1aa3b5' };
 const PHASE_COLOR = { A: COLORS.red, B: COLORS.green, C: COLORS.blue, N: COLORS.gray };
 const TIMELINE_COLORS = [COLORS.orange, COLORS.blue, COLORS.green, COLORS.purple, COLORS.gray, COLORS.pink];
-const SD2_COLOR = '#f5c400', SD3_COLOR = '#e5383b';
+const WATCH_COLOR = '#f5c400', CAUTION_COLOR = '#e8173c';
+
+// 판정 기준 (한국형 잠정기준) — 설정에서 바꾸며 전국 공통으로 저장된다
+const DEFAULT_CRITERIA = { dgWatch: 20, dgCaution: 25, locWatchSD: 2, locCautionSD: 3 };
+const GRADE = {
+  good: { key: 'good', label: '양호', cls: 'green', rank: 0 },
+  watch: { key: 'watch', label: '관심', cls: 'yellow', rank: 1 },
+  caution: { key: 'caution', label: '주의', cls: 'rose', rank: 2 },
+};
 
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() :
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
@@ -64,11 +72,22 @@ function fromLocalInput(s) { const d = new Date(s); return isNaN(d) ? nowISO() :
 function isToday(iso) { const a = new Date(iso), b = new Date(); return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
 function defaultStage(d) { return isToday(d.date) ? '현장' : '사무실'; }
 function sortPhases(a) { return [...a].sort((x, y) => PHASES.indexOf(x) - PHASES.indexOf(y)); }
+/** DeltaG 판정: 관심 기준 이상 → 관심, 주의 기준 이상 → 주의 */
 function dgGrade(v) {
   if (v == null || !isFinite(v)) return null;
-  if (v < 20) return { label: '양호', cls: 'green' };
-  if (v < 25) return { label: '관찰', cls: 'yellow' };
-  return { label: '주의', cls: 'orange' };
+  const c = state.criteria;
+  return v >= c.dgCaution ? GRADE.caution : v >= c.dgWatch ? GRADE.watch : GRADE.good;
+}
+/** 국부신호 판정: 최대 신호가 관심 기준(SD) 초과 → 관심, 주의 기준 초과 → 주의 */
+function localGrade(loc) {
+  if (!loc || loc.maxK == null || !isFinite(loc.maxK)) return null;
+  const c = state.criteria;
+  return loc.maxK > c.locCautionSD ? GRADE.caution : loc.maxK > c.locWatchSD ? GRADE.watch : GRADE.good;
+}
+function worstGrade(list) {
+  let w = null;
+  for (const g of list) if (g && (!w || g.rank > w.rank)) w = g;
+  return w;
 }
 function haversine(a, b) {
   const R = 6371000, t = Math.PI / 180;
@@ -103,6 +122,12 @@ function missingItems(d) {
   return m;
 }
 function statusOf(d) { return d.imported ? 'imported' : (missingItems(d).length ? 'needsInput' : 'complete'); }
+/** 진단 1건의 종합 판정: 상별 DeltaG·국부신호 중 가장 나쁜 것 (판정할 값이 없으면 null) */
+function diagGrade(d) {
+  const g = [];
+  for (const ph of d.phases) { const r = resultOf(d, ph); g.push(dgGrade(r?.deltaG), localGrade(r?.spectrum ? r.local : null)); }
+  return worstGrade(g);
+}
 function repPhotoOf(d) { return d.photos.find(p => p.id === d.repPhotoId) || d.photos[0] || null; }
 function maxDGOf(d) { const v = d.phases.map(ph => deltaGOf(d, ph)).filter(x => x != null); return v.length ? Math.max(...v) : null; }
 function specText(s) {
@@ -130,6 +155,7 @@ const state = reactive({
   mode: '', modeLabel: '', operator: ls.get('operatorName') || '',
   route: { path: '/map', parts: ['map'], query: {} }, tab: 'map',
   toast: '', busy: '', dialog: null, headerOverride: null, lastLoc: null,
+  criteria: { ...DEFAULT_CRITERIA }, criteriaMeta: null, criteriaMissing: false,
 });
 let store = null;
 
@@ -146,6 +172,12 @@ const siteById = id => siteMap.value.get(id) || null;
 const diagById = id => diagMap.value.get(id) || null;
 const historyOf = id => historyMap.value.get(id) || [];
 const lastDiagOf = id => { const h = historyOf(id); return h.length ? h[h.length - 1] : null; };
+/** 구간 판정: 판정값이 있는 가장 최근 진단의 종합 판정 */
+function siteGradeOf(id) {
+  const h = historyOf(id);
+  for (let i = h.length - 1; i >= 0; i--) { const g = diagGrade(h[i]); if (g) return { grade: g, diag: h[i] }; }
+  return null;
+}
 const hasSpectrum = id => historyOf(id).some(d => d.results.some(r => r.spectrum));
 
 function nearby(p, within) {
@@ -398,6 +430,7 @@ const A = {
     let old = null;
     await A.updateDiagnosis(diagId, d => { old = A._setSpectrum(d, phase, ref, stage); });
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
+    await A.refreshLocal(diagId, phase, data);
     return `${phase}상 ← ${pasted ? '클립보드' + (data.label ? ' (' + data.label + ')' : '') : name}`;
   },
   /** LIRA 측정 파일 묶음(.lira 필수, .anl·.out·.sdt·.pbd 선택) */
@@ -447,6 +480,7 @@ const A = {
     });
     const site = d0 && siteById(d0.siteId);
     if (site && site.lengthM == null && ref.lira.length) await A.updateSite(site.id, s => { s.lengthM = ref.lira.length; });
+    await A.refreshLocal(diagId, phase, sp);
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
     const notes = [];
     if (dgSet) notes.push(`DeltaG ${fmtDG(out.deltaG)} 자동 입력`);
@@ -472,9 +506,32 @@ const A = {
   async removeSpectrum(diagId, phase) {
     const d = diagById(diagId); const r = d && resultOf(d, phase); const sp = r?.spectrum;
     if (!sp) return;
-    await A.updateDiagnosis(diagId, dd => { resultOf(dd, phase).spectrum = null; });
+    await A.updateDiagnosis(diagId, dd => { const rr = resultOf(dd, phase); rr.spectrum = null; rr.local = null; });
     store.removeFiles([sp.fileName, ...(sp.raw || [])]).catch(() => {});
     specCache.delete(sp.fileName);
+  },
+  /** 국부신호 판정값 저장 (그 사이 스펙트럼이 바뀌었으면 무시, 같은 값이면 저장 생략) */
+  async setLocal(diagId, phase, fileName, loc) {
+    const d = diagById(diagId); const r = d && resultOf(d, phase);
+    if (!r || !r.spectrum || r.spectrum.fileName !== fileName) return;
+    const o = r.local;
+    if (o && o.key === loc.key && o.maxK === loc.maxK && o.atM === loc.atM) return;
+    await A.updateDiagnosis(diagId, dd => { const rr = resultOf(dd, phase); if (rr) rr.local = loc; });
+  },
+  async refreshLocal(diagId, phase, data) {
+    const d = diagById(diagId); const r = d && resultOf(d, phase); const site = d && siteById(d.siteId);
+    if (!r?.spectrum || !site) return;
+    try { await A.setLocal(diagId, phase, r.spectrum.fileName, await computeLocal(site, r.spectrum, data)); }
+    catch (e) { console.warn('국부신호 판정 실패', e); }
+  },
+  /** 구간의 분석 조건(긍장·기준 대역폭·윈도우)이 바뀌면 그 구간 스펙트럼의 판정을 다시 계산 */
+  async refreshLocalForSite(siteId, force = false) {
+    const site = siteById(siteId); if (!site) return;
+    for (const d of historyOf(siteId)) {
+      for (const r of d.results) {
+        if (r.spectrum && (force || !r.local || r.local.key !== localKey(site, r.spectrum))) await A.refreshLocal(d.id, r.phase);
+      }
+    }
   },
 };
 
@@ -506,21 +563,55 @@ function exportJSON() {
   download(`LIRA_진단이력_${fmtFileStamp()}.json`, new Blob([JSON.stringify(snap, null, 1)], { type: 'application/json' }));
 }
 function exportCSV() {
-  const lines = ['본부,구간,지중/해저,시점전산화번호,종점전산화번호,진단일,상,DeltaG,스펙트럼,상태,출처'];
+  const lines = ['본부,구간,지중/해저,시점전산화번호,종점전산화번호,진단일,상,DeltaG,DeltaG 판정,국부신호 판정,국부신호 위치(m),스펙트럼,상태,출처'];
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   for (const d of [...state.diagnoses].sort((a, b) => new Date(a.date) - new Date(b.date))) {
     const s = siteById(d.siteId); if (!s) continue;
     for (const ph of d.phases) {
       const r = resultOf(d, ph);
       lines.push([s.hq, s.name, s.kind, s.fromCode, s.toCode, fmtDay(d.date), ph,
-        r?.deltaG != null ? Number(r.deltaG).toFixed(2) : '', r?.spectrum ? 'Y' : 'N', STATUS[statusOf(d)].label, d.source].map(q).join(','));
+        r?.deltaG != null ? Number(r.deltaG).toFixed(2) : '', dgGrade(r?.deltaG)?.label || '',
+        (r?.spectrum && localGrade(r.local)?.label) || '', (r?.spectrum && localGrade(r.local) && r.local.atM != null && localGrade(r.local).key !== 'good') ? r.local.atM : '',
+        r?.spectrum ? 'Y' : 'N', STATUS[statusOf(d)].label, d.source].map(q).join(','));
     }
   }
   download(`LIRA_DeltaG_${fmtFileStamp()}.csv`, new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' }));
 }
 
+// 판정 기준 (전국 공통 설정) 불러오기·적용
+function applyCriteria(v) {
+  if (!v) return;
+  const c = { ...DEFAULT_CRITERIA };
+  for (const k of Object.keys(DEFAULT_CRITERIA)) { const x = Number(v[k]); if (v[k] != null && isFinite(x)) c[k] = x; }
+  state.criteria = c;
+  state.criteriaMeta = { updatedAt: v.updatedAt || null, updatedBy: v.updatedBy || '' };
+}
+async function loadCriteria() {
+  try {
+    const r = await store.loadSettings('criteria');
+    state.criteriaMissing = !!r.missing;
+    if (r.missing) { const t = ls.get('lira-criteria-fallback'); if (t) applyCriteria(JSON.parse(t)); return; }
+    if (r.data) applyCriteria(r.data);
+  } catch (e) { console.warn('판정 기준 불러오기 실패', e); }
+}
+async function saveCriteria(values) {
+  const v = { ...values, updatedAt: nowISO(), updatedBy: state.operator || '' };
+  if (state.criteriaMissing) {
+    ls.set('lira-criteria-fallback', JSON.stringify(v));
+    applyCriteria(v);
+    return false;
+  }
+  await store.saveSettings('criteria', v);
+  applyCriteria(v);
+  return true;
+}
+
 // 다른 사용자의 변경 반영
 function applyRemote(table, p) {
+  if (table === 'app_settings') {
+    if (p.new?.id === 'criteria' && p.new.data) applyCriteria(p.new.data);
+    return;
+  }
   const arr = table === 'sites' ? state.sites : state.diagnoses;
   if (p.eventType === 'DELETE') {
     const id = p.old?.id; const i = arr.findIndex(x => x.id === id);
@@ -539,6 +630,7 @@ async function reloadAll(force = false) {
   try {
     const data = await store.loadAll();
     state.sites = data.sites; state.diagnoses = data.diagnoses;
+    await loadCriteria();
   } catch (e) { reportError(e); }
 }
 
@@ -741,7 +833,8 @@ function cssVar(n) { return getComputedStyle(document.documentElement).getProper
 const SignatureChart = {
   props: {
     curves: Array, hidden: { type: Array, default: () => [] }, xMax: Number, lengthMarker: Number,
-    cursor: Number, height: { default: 280 }, interactive: { default: true }, normalized: Boolean, showSD: Boolean,
+    cursor: Number, height: { default: 280 }, interactive: { default: true }, normalized: Boolean,
+    levels: { type: Array, default: () => [] },   // 판정 기준선 [{ label, value, color }] (정규화 좌표)
   },
   emits: ['update:cursor'],
   mounted() {
@@ -752,7 +845,7 @@ const SignatureChart = {
   beforeUnmount() { this.ro && this.ro.disconnect(); },
   watch: {
     curves() { this.draw(); }, hidden() { this.draw(); }, xMax() { this.draw(); }, cursor() { this.draw(); },
-    normalized() { this.draw(); }, showSD() { this.draw(); }, lengthMarker() { this.draw(); },
+    normalized() { this.draw(); }, levels() { this.draw(); }, lengthMarker() { this.draw(); },
   },
   computed: { visible() { return (this.curves || []).filter(c => !this.hidden.includes(c.id)); } },
   methods: {
@@ -764,8 +857,8 @@ const SignatureChart = {
       }
       if (!isFinite(lo) || !isFinite(hi)) return this.normalized ? [0, 20] : [-60, 0];
       if (this.normalized) {
-        const sdTop = this.showSD ? Math.max(0, ...this.visible.map(c => c.trace.sd3 || 0)) : 0;
-        const top = Math.max(hi, sdTop + 3, 5);
+        const lvTop = Math.max(0, ...this.levels.map(l => l.value || 0));
+        const top = Math.max(hi, this.levels.length ? lvTop + 3 : 0, 5);
         const st = tickStep(top, 6);
         return [0, Math.ceil((top + 1) / st) * st];
       }
@@ -821,19 +914,16 @@ const SignatureChart = {
         ctx.stroke();
       }
       ctx.restore();
-      // 2SD·3SD 선 (곡선마다 자기 SD)
-      if (this.normalized && this.showSD) {
-        const sdc = this.visible.filter(c => c.trace.sd2 != null);
-        sdc.forEach((c, k) => {
-          for (const [lv, col, name] of [[c.trace.sd2, SD2_COLOR, '2SD'], [c.trace.sd3, SD3_COLOR, '3SD']]) {
-            if (lv == null || lv < y0 || lv > y1) continue;
-            const y = py(lv);
-            ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1.2;
-            ctx.beginPath(); ctx.moveTo(pr.x, y); ctx.lineTo(pr.x + pr.w, y); ctx.stroke(); ctx.restore();
-            if (sdc.length > 1) { ctx.strokeStyle = c.color; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(pr.x, y); ctx.lineTo(pr.x + 14, y); ctx.stroke(); }
-            if (k === 0) { ctx.fillStyle = col; ctx.font = '700 9px -apple-system, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(name, pr.x + pr.w - 3, y - 1); }
-          }
-        });
+      // 판정 기준선 (관심·주의) — 겹친 곡선들의 평균 1개씩
+      if (this.normalized) {
+        for (const lv of this.levels) {
+          if (lv.value == null || !isFinite(lv.value) || lv.value < y0 || lv.value > y1) continue;
+          const y = py(lv.value);
+          ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = lv.color; ctx.lineWidth = 1.3;
+          ctx.beginPath(); ctx.moveTo(pr.x, y); ctx.lineTo(pr.x + pr.w, y); ctx.stroke(); ctx.restore();
+          ctx.fillStyle = lv.color; ctx.font = '700 10px -apple-system, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+          ctx.fillText(lv.label, pr.x + pr.w - 3, y - 1);
+        }
       }
       // 커서
       if (this.cursor != null) {
@@ -923,6 +1013,15 @@ const SignatureCompare = {
     },
     resText() { const c = this.curves[0]; return c ? `분해능 ${c.resolutionM.toFixed(1)} m · Shadow ${(c.resolutionM * 5 / 3).toFixed(1)} m` : ''; },
     visibleCurves() { return this.curves.filter(c => !this.hidden.includes(c.id)); },
+    /** 관심·주의 기준선: 보이는 곡선들의 기준선 높이 평균 (한 개씩만 표시) */
+    levels() {
+      if (!this.normalize || !this.showSD) return [];
+      const cs = this.visibleCurves.filter(c => c.trace.sd != null);
+      if (!cs.length) return [];
+      const cr = state.criteria;
+      const avg = k => cs.reduce((t, c) => t + Sig.sdLevel(c.trace, k), 0) / cs.length;
+      return [{ label: '관심', value: avg(cr.locWatchSD), color: WATCH_COLOR }, { label: '주의', value: avg(cr.locCautionSD), color: CAUTION_COLOR }];
+    },
     tdr() { return Sig.tdrVelocity(this.manualVR).toFixed(1); },
   },
   watch: { key() { this.schedule(); } },
@@ -981,9 +1080,13 @@ const SignatureCompare = {
           color = PHASE_COLOR[src.phase] || COLORS.gray;
         }
         const parts = [`VR ${vr.toFixed(3)}`];
+        let grade = null;
         if (this.normalize && norm) {
+          const m = localMetric({ r, norm, trace }, L);
+          grade = m ? localGrade(m) : null;
+          if (grade) parts.unshift(`국부신호 ${grade.label}` + (grade.key !== 'good' ? ` (${m.atM} m 부근)` : ''));
           parts.push(`감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB`);
-          parts.push(`기준선 ${norm.source} · 1 SD ${norm.sd.toFixed(1)} dB`);
+          parts.push(`기준선 ${norm.source}`);
         } else if (this.normalize) parts.push('긍장 없음: 정규화 불가');
         parts.push(src.ref.label || src.ref.originalName);
         out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
@@ -997,6 +1100,7 @@ const SignatureCompare = {
     async saveStd() {
       await A.updateSite(this.siteId, s => { s.sigBandwidthMHz = this.bandwidthMHz; s.sigWindow = this.windowName; });
       this.savedNotice = true;
+      A.refreshLocalForSite(this.siteId).catch(() => {});   // 기준 대역폭으로 국부신호 판정 다시 계산
     },
   },
   template: `<div>
@@ -1019,7 +1123,7 @@ const SignatureCompare = {
         <option v-for="d in diagsWithData" :key="d.id" :value="d.id">{{ fmtDay(d.date) }}</option>
       </select>
       <div class="chartbox">
-        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="length" v-model:cursor="cursor" :normalized="normalize" :show-s-d="showSD"></signature-chart>
+        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="length" v-model:cursor="cursor" :normalized="normalize" :levels="levels"></signature-chart>
       </div>
       <div class="readout" v-if="cursor != null">
         <b class="mono">{{ cursor.toFixed(1) }} m</b>
@@ -1037,7 +1141,7 @@ const SignatureCompare = {
           <label class="toggle"><input type="checkbox" v-model="normalize"><span></span></label>
         </div>
         <div class="optrow" v-if="normalize" style="padding-left:12px">
-          <div class="grow">2SD · 3SD 선 표시</div>
+          <div class="grow">관심 · 주의 기준선 표시</div>
           <label class="toggle"><input type="checkbox" v-model="showSD"><span></span></label>
         </div>
         <div class="sub xs" v-if="!length">긍장 정보가 있어야 감쇠 보정과 정규화를 할 수 있습니다. 구간 정보에 긍장을 입력하세요.</div>
@@ -1078,15 +1182,57 @@ function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normali
   let norm = Sig.makeNormalization(r, L);
   const ln = ref?.lira?.norm, lbw = ref?.lira?.bandHz;
   if (norm && ln && lbw && Math.abs(bwHz - lbw) / lbw < 0.02 && windowName === '4 Term B-H') {
-    norm = { ...norm, slope: ln.slope, zeroDB: ln.zero, sd: ln.sd ?? norm.sd, source: 'LIRA 분석값' };
+    norm = { ...norm, slope: ln.slope, zeroDB: ln.zero, sd: ln.sd ?? norm.sd, sigma: ln.sd != null ? (ln.sigma ?? 1) : norm.sigma, source: 'LIRA 분석값' };
   }
   return { r, norm, trace: Sig.displayTrace(r, norm, normalize, reversed, L, xMax) };
+}
+
+/** 미리보기·국부신호 판정에 쓰는 기본 분석 조건: 구간 기준 대역폭 → LIRA 분석대역 → 가이드라인 → 40% */
+function analysisFor(site, ref, data) {
+  const windowName = Sig.WINDOWS.includes(site.sigWindow) ? site.sigWindow : '4 Term B-H';
+  const L = site.lengthM || null;
+  const lb = ref.lira?.bandHz;
+  const guide = L ? Sig.guidelineBandwidthMHz(L) * 1e6 : null;
+  const bwHz = Math.min((site.sigBandwidthMHz ? site.sigBandwidthMHz * 1e6 : null) ?? lb ?? guide ?? data.maxFreq * 0.4, data.maxFreq);
+  let vr = 0.55;
+  if (L) { const est = Sig.estimateVR(data, bwHz, windowName, L); if (est) vr = est; }
+  const xMax = L ? L * 1.05 : vr * Sig.C / (2 * data.df) / 4;
+  return { bwHz, windowName, vr, length: L, xMax };
+}
+function localKey(site, ref) { return [ref.fileName, site.sigBandwidthMHz || '', site.sigWindow || '', site.lengthM || ''].join('|'); }
+
+/**
+ * 국부신호 지표: 근단·종단(각 2×분해능)을 뺀 케이블 구간에서 감쇠 보정 신호가 평균 변동보다
+ * 몇 SD 높은지의 최댓값(maxK)과 위치. 판정(관심·주의)은 설정의 SD 기준과 비교해 정한다.
+ */
+function localMetric(c, L) {
+  const { r, norm, trace } = c;
+  if (!norm || !(L > 0) || !(trace.sd > 0)) return null;
+  const a = 2 * r.resolutionM, b = L - 2 * r.resolutionM;
+  if (b - a < 0.2 * L) return null;
+  let maxK = -Infinity, at = null;
+  for (let x = a; x <= b; x += trace.step) {
+    const v = Sig.traceValueAt(trace, x);
+    if (v == null) continue;
+    const k = v / trace.sd + (trace.sigma ?? 1);
+    if (k > maxK) { maxK = k; at = x; }
+  }
+  return isFinite(maxK) ? { maxK: Math.round(maxK * 100) / 100, atM: Math.round(at) } : null;
+}
+async function computeLocal(site, ref, data) {
+  const key = localKey(site, ref);
+  if (!site.lengthM) return { key, maxK: null, reason: '긍장 없음' };
+  data = data || await loadSpectrum(ref.fileName);
+  const an = analysisFor(site, ref, data);
+  const c = signatureCurve(data, ref, { ...an, normalize: true, reversed: false });
+  const m = localMetric(c, an.length);
+  return { key, maxK: m ? m.maxK : null, atM: m ? m.atM : null, src: c.norm?.source || '', bwMHz: Math.round(an.bwHz / 1e4) / 100, at: nowISO() };
 }
 
 // 진단 상세 화면용 미리보기
 const SignaturePreview = {
   components: { SignatureChart },
-  props: { refObj: Object, site: Object, phase: String },
+  props: { refObj: Object, site: Object, phase: String, diagId: String, local: Object },
   data: () => ({ curves: [], xMax: 100, caption: '', cursor: null, normalized: false }),
   computed: { key() { return [this.refObj.fileName, this.site.sigBandwidthMHz, this.site.sigWindow, this.site.lengthM].join('|'); } },
   watch: { key: { immediate: true, handler() { this.build(); } } },
@@ -1094,16 +1240,19 @@ const SignaturePreview = {
     async build() {
       let data;
       try { data = await loadSpectrum(this.refObj.fileName); } catch (e) { this.caption = '스펙트럼을 읽지 못했습니다: ' + e.message; return; }
-      const win = Sig.WINDOWS.includes(this.site.sigWindow) ? this.site.sigWindow : '4 Term B-H';
-      const L = this.site.lengthM || null;
-      const lb = this.refObj.lira?.bandHz;
-      const guide = L ? Sig.guidelineBandwidthMHz(L) * 1e6 : null;
-      const bw = Math.min((this.site.sigBandwidthMHz ? this.site.sigBandwidthMHz * 1e6 : null) ?? lb ?? guide ?? data.maxFreq * 0.4, data.maxFreq);
-      let vr = 0.55;
-      if (L) { const est = Sig.estimateVR(data, bw, win, L); if (est) vr = est; }
-      const xm = L ? L * 1.05 : vr * Sig.C / (2 * data.df) / 4;
-      const { r, norm, trace } = signatureCurve(data, this.refObj, { bwHz: bw, windowName: win, vr, length: L, xMax: xm, normalize: !!L, reversed: false });
+      const an = analysisFor(this.site, this.refObj, data);
+      const { bwHz: bw, windowName: win, vr, length: L, xMax: xm } = an;
+      const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: false });
+      const { r, norm, trace } = c;
       this.xMax = xm;
+      // 국부신호 판정값이 없거나 분석 조건이 바뀌었으면 다시 저장
+      const key = localKey(this.site, this.refObj);
+      if (this.diagId && (!this.local || this.local.key !== key)) {
+        const m = L ? localMetric(c, L) : null;
+        const loc = { key, maxK: m ? m.maxK : null, atM: m ? m.atM : null, src: norm?.source || '', bwMHz: Math.round(bw / 1e4) / 100, at: nowISO() };
+        if (!L) loc.reason = '긍장 없음';
+        A.setLocal(this.diagId, this.phase, this.refObj.fileName, loc);
+      }
       this.normalized = !!(L && norm);
       this.caption = `대역폭 ${(bw / 1e6).toFixed(2)} MHz · ${win} · VR ${vr.toFixed(3)} · 분해능 ${r.resolutionM.toFixed(1)} m · ` +
         (this.normalized ? `Normalized (기준선 ${norm.source})` : 'Normalized OFF (긍장 없음)');
@@ -1131,9 +1280,15 @@ const MapView = {
     markerKey() {
       return this.filtered.map(s => {
         const h = historyOf(s.id);
-        return [s.id, s.location?.lat, s.location?.lon, s.endLocation?.lat, s.locSource, h.length, h.some(d => statusOf(d) === 'needsInput')].join(',');
+        return [s.id, s.location?.lat, s.location?.lon, s.endLocation?.lat, h.length, siteGradeOf(s.id)?.grade.key, !!s.starred].join(',');
       }).join('|') + '|' + this.selected;
     },
+    gradeCounts() {
+      const c = { caution: 0, watch: 0, good: 0, none: 0, star: 0 };
+      for (const s of this.filtered) { c[siteGradeOf(s.id)?.grade.key || 'none']++; if (s.starred) c.star++; }
+      return c;
+    },
+    selGrade() { return this.sel ? siteGradeOf(this.sel.id) : null; },
     visible() { return state.route.parts[0] === 'map'; },
   },
   watch: {
@@ -1168,9 +1323,15 @@ const MapView = {
         if (!s.location) continue;
         if (s.endLocation) L.polyline([[s.location.lat, s.location.lon], [s.endLocation.lat, s.endLocation.lon]], { color: COLORS.teal, weight: 3, dashArray: '6 5', opacity: 0.8 }).addTo(this.layer);
         const h = historyOf(s.id);
-        const cls = ['mk', isConfirmed(s.locSource) ? '' : 'est', h.some(d => statusOf(d) === 'needsInput') ? 'pend' : '', this.selected === s.id ? 'sel' : ''].join(' ');
+        const g = siteGradeOf(s.id)?.grade;
+        const cls = ['mk', 'g-' + (g ? g.key : 'none'), s.starred ? 'starred' : '', this.selected === s.id ? 'sel' : ''].join(' ');
         const label = h.length ? h.length : (s.kind === '해저' ? '≈' : '⚡');
-        const m = L.marker([s.location.lat, s.location.lon], { icon: L.divIcon({ className: '', html: `<div class="${cls}" title="${shortLabel(s)}">${label}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] }) });
+        const star = s.starred ? '<span class="mk-star">★</span>' : '';
+        const z = (s.starred ? 1000 : 0) + (g ? g.rank * 100 : 0);
+        const m = L.marker([s.location.lat, s.location.lon], {
+          zIndexOffset: z,
+          icon: L.divIcon({ className: '', html: `<div class="${cls}" title="${shortLabel(s)}${g ? ' · ' + g.label : ''}">${label}${star}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] }),
+        });
         m.on('click', e => { L.DomEvent.stopPropagation(e); this.selected = s.id; });
         m.addTo(this.layer);
       }
@@ -1192,10 +1353,12 @@ const MapView = {
     <button class="map-fab" style="top:56px" @click="locate" title="내 위치">◎</button>
     <div class="map-bottom">
       <div class="glass" v-if="sel" style="cursor:pointer" @click="open(sel.id)">
-        <div class="btnrow" style="justify-content:space-between"><b>{{ sel.name }}</b><span class="sub small">{{ selHist.length }}회 ›</span></div>
+        <div class="btnrow" style="justify-content:space-between;flex-wrap:nowrap"><b><span v-if="sel.starred" class="starmark">★</span>{{ sel.name }}</b><span class="sub small" style="flex:none">{{ selHist.length }}회 ›</span></div>
         <div class="sub small">{{ sel.hq }} · {{ specText(sel) }}</div>
         <div class="btnrow small" style="margin-top:4px" v-if="selLast">최근 {{ fmtDay(selLast.date) }}
           <span v-if="maxDGOf(selLast) != null" class="sub">· DeltaG 최대 <b class="mono">{{ maxDGOf(selLast).toFixed(1) }}</b></span>
+          <span v-if="selGrade" class="chip" :class="selGrade.grade.cls">{{ selGrade.grade.label }}</span>
+          <span v-if="selGrade && selGrade.diag !== selLast" class="xs sub">({{ fmtDay(selGrade.diag.date) }} 판정)</span>
           <span v-if="statusOf(selLast) === 'needsInput'" class="chip orange">추가 입력 필요</span>
         </div>
       </div>
@@ -1206,9 +1369,11 @@ const MapView = {
           <button class="stat btnlike" @click="showUnlocated = true"><div class="n" style="color:var(--orange)">{{ unconfirmed.length }}</div><div class="l">위치 미확정 ›</div></button>
         </div>
         <div class="legend">
-          <span><i style="background:var(--teal)"></i>GPS 확정</span>
-          <span><i style="border:2px dashed var(--teal);width:8px;height:8px"></i>추정 위치</span>
-          <span><i style="background:var(--orange)"></i>추가 입력 필요</span>
+          <span><i class="lg-caution"></i>주의 {{ gradeCounts.caution }}</span>
+          <span><i class="lg-watch"></i>관심 {{ gradeCounts.watch }}</span>
+          <span><i class="lg-good"></i>양호 {{ gradeCounts.good }}</span>
+          <span><i class="lg-none"></i>판정 없음 {{ gradeCounts.none }}</span>
+          <span v-if="gradeCounts.star"><b class="starmark">★</b>강조 {{ gradeCounts.star }}</span>
         </div>
       </div>
     </div>
@@ -1235,14 +1400,15 @@ const SiteRow = {
   computed: {
     hist() { return historyOf(this.site.id); },
     last() { return this.hist[this.hist.length - 1] || null; },
+    sg() { return siteGradeOf(this.site.id); },
   },
   methods: { fmtDay, specText, maxDGOf, statusOf, isConfirmed },
   template: `<div class="grow">
-    <div class="btnrow" style="justify-content:space-between;flex-wrap:nowrap"><b class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ site.name }}</b><span class="xs sub mono">{{ hist.length }}회</span></div>
+    <div class="btnrow" style="justify-content:space-between;flex-wrap:nowrap"><b class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span v-if="site.starred" class="starmark">★</span>{{ site.name }}</b><span class="btnrow" style="flex:none;gap:6px"><span v-if="sg" class="chip" :class="sg.grade.cls">{{ sg.grade.label }}</span><span class="xs sub mono">{{ hist.length }}회</span></span></div>
     <div class="xs sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ site.hq }} · {{ specText(site) }}</div>
     <div class="btnrow xs" style="margin-top:3px" v-if="last">
       <span>최근 {{ fmtDay(last.date) }}</span>
-      <span v-if="maxDGOf(last) != null"><span class="sub">DeltaG 최대</span> <dg-value :value="maxDGOf(last)"></dg-value></span>
+      <span v-if="maxDGOf(last) != null"><span class="sub">DeltaG 최대</span> <b class="mono">{{ maxDGOf(last).toFixed(1) }}</b></span>
       <status-badge v-if="statusOf(last) === 'needsInput'" status="needsInput"></status-badge>
       <span v-if="!isConfirmed(site.locSource)" class="sub" style="margin-left:auto">⌀ 위치</span>
     </div>
@@ -1330,6 +1496,7 @@ const SiteEditor = {
           s.size = f.size.trim(); s.mfg = f.mfg.trim(); s.maker = f.maker.trim(); s.lengthM = this.lengthVal;
         });
         toast('구간 정보를 저장했습니다.');
+        A.refreshLocalForSite(this.site.id).catch(() => {});   // 긍장이 바뀌면 국부신호 판정 다시 계산
         this.$emit('close');
       } catch (e) { reportError(e); } finally { this.saving = false; }
     },
@@ -1400,6 +1567,7 @@ const SiteView = {
     site() { return siteById(this.id); },
     hist() { return historyOf(this.id); },
     histRev() { return [...this.hist].reverse(); },
+    sg() { return siteGradeOf(this.id); },
     canCompare() { return this.hist.length >= 2 || hasSpectrum(this.id); },
     markers() { const s = this.site; return s?.location ? [{ lat: s.location.lat, lon: s.location.lon, cls: 'mk', html: '⚡' }] : []; },
     line() { const s = this.site; return s?.location && s.endLocation ? [[s.location.lat, s.location.lon], [s.endLocation.lat, s.endLocation.lon]] : null; },
@@ -1410,6 +1578,8 @@ const SiteView = {
     go, specText, codesText, geoText, isConfirmed,
     async saveNote() { await A.updateSite(this.id, s => { s.note = this.draft; }); this.editing = false; },
     async picked(c) { await A.updateSite(this.id, s => { s.location = c; s.locSource = 'manual'; }); toast('위치를 지정했습니다.'); },
+    async setStar(on) { await A.updateSite(this.id, s => { s.starred = !!on; }); toast(on ? '지도에 ★ 강조 표시합니다.' : '강조 표시를 껐습니다.'); },
+    fmtDay,
     async delSite() {
       const s = this.site, n = this.hist.length;
       const ok = n
@@ -1431,6 +1601,9 @@ const SiteView = {
         <div class="xs sub code" v-if="codesText(site)"># 전산화번호 {{ codesText(site) }}</div>
         <div class="xs sub" v-if="site.maker">제조사 {{ site.maker }}</div>
       </div>
+      <div class="row" v-if="sg"><span class="small">판정</span><span class="grow"></span><span class="xs sub">{{ fmtDay(sg.diag.date) }} 진단 기준</span><span class="chip" :class="sg.grade.cls">{{ sg.grade.label }}</span></div>
+      <div class="row"><span class="small"><span class="starmark">★</span> 지도에서 강조</span><span class="grow"></span>
+        <label class="toggle"><input type="checkbox" :checked="!!site.starred" @change="setStar($event.target.checked)"><span></span></label></div>
       <div class="row"><button class="linkbtn" @click="editSite = true">✎ 구간 정보 수정</button></div>
     </div>
     <div class="sec"><div class="sec-h">위치</div><div class="card">
@@ -1667,6 +1840,7 @@ const DiagView = {
     site() { return this.d ? siteById(this.d.siteId) : null; },
     afterCreate() { return state.route.query.new === '1'; },
     st() { return statusOf(this.d); },
+    total() { return diagGrade(this.d); },
     missing() { return missingItems(this.d); },
     rep() { return repPhotoOf(this.d); },
     comments() { return [...this.d.comments].sort((a, b) => new Date(a.at) - new Date(b.at)); },
@@ -1684,6 +1858,7 @@ const DiagView = {
     setMaxF(v) { const x = parseFloat(v); this.upd(d => { d.maxFreqMHz = isFinite(x) ? x : null; }); },
     r(ph) { return resultOf(this.d, ph); },
     grade(ph) { return dgGrade(deltaGOf(this.d, ph)); },
+    lgrade(ph) { const r = this.r(ph); return r && r.spectrum ? localGrade(r.local) : null; },
     setDG(ph, v) {
       const x = parseFloat(String(v).replace(',', '.'));
       this.upd(d => {
@@ -1827,7 +2002,7 @@ const DiagView = {
   template: `<div class="page" v-if="d && site">
     <div class="card" v-if="afterCreate" style="padding:12px 16px;color:var(--green)">✓ 현장 기록이 저장되었습니다. 결과는 지금 입력하거나 사무실에서 '추가 입력' 탭으로 이어서 입력하세요.</div>
     <div class="sec"><div class="card">
-      <div class="row"><div class="grow" style="cursor:pointer" @click="go('/site/' + site.id)"><b>{{ site.name }} <span class="sub">›</span></b><div class="xs sub">{{ specText(site) }}</div></div><status-badge :status="st"></status-badge></div>
+      <div class="row"><div class="grow" style="cursor:pointer" @click="go('/site/' + site.id)"><b>{{ site.name }} <span class="sub">›</span></b><div class="xs sub">{{ specText(site) }}</div></div><span class="btnrow" style="flex:none"><span v-if="total" class="chip" :class="total.cls">종합 {{ total.label }}</span><status-badge :status="st"></status-badge></span></div>
       <div class="row xs" v-if="missing.length" style="color:var(--orange)">남은 입력: {{ missing.join(', ') }}</div>
       <div class="row xs sub" v-if="d.imported">출처: {{ d.source }}</div>
     </div></div>
@@ -1863,6 +2038,13 @@ const DiagView = {
         <input class="input mono" inputmode="decimal" :value="r(ph) && r(ph).deltaG != null ? r(ph).deltaG : ''" placeholder="값 입력" @change="setDG(ph, $event.target.value)">
         <span v-if="grade(ph)" class="chip" :class="grade(ph).cls">{{ grade(ph).label }}</span>
       </div>
+      <div class="field" v-if="r(ph) && r(ph).spectrum"><label>국부신호</label><span class="grow"></span>
+        <template v-if="lgrade(ph)">
+          <span class="xs sub" v-if="lgrade(ph).key !== 'good' && r(ph).local.atM != null">{{ r(ph).local.atM }} m 부근</span>
+          <span class="chip" :class="lgrade(ph).cls">{{ lgrade(ph).label }}</span>
+        </template>
+        <span v-else class="xs sub">{{ r(ph).local ? '판정 불가' + (r(ph).local.reason ? ' (' + r(ph).local.reason + ')' : '') : '계산 중…' }}</span>
+      </div>
       <div class="row xs mono" v-if="prevText(ph)" :style="{color: prevText(ph).warn ? 'var(--orange)' : 'var(--sub)'}">{{ prevText(ph).text }}</div>
       <template v-if="r(ph) && r(ph).spectrum">
         <div class="row" style="display:block">
@@ -1871,7 +2053,7 @@ const DiagView = {
             <span class="btnrow" style="flex:none;flex-wrap:nowrap"><button class="btn small" @click="pickFiles(ph)">교체</button><button class="btn small" @click="pasteSpectrum(ph)" title="클립보드 붙여넣기">📋</button><button class="btn small danger" @click="removeSpec(ph)">삭제</button></span>
           </div>
           <div class="xs sub mono" style="margin:2px 0 6px">{{ refSummary(r(ph).spectrum) }}{{ r(ph).spectrum.label ? ' · ' + r(ph).spectrum.label : '' }}{{ r(ph).spectrum.lira ? ' · LIRA 파일' : '' }}</div>
-          <signature-preview :ref-obj="r(ph).spectrum" :site="site" :phase="ph"></signature-preview>
+          <signature-preview :ref-obj="r(ph).spectrum" :site="site" :phase="ph" :diag-id="d.id" :local="r(ph).local"></signature-preview>
           <div style="margin-top:6px"><button class="linkbtn small" @click="go('/compare/' + d.siteId + '?focus=' + d.id)">🎚 Signature 뷰어에서 대역폭 조절·비교 ›</button></div>
         </div>
       </template>
@@ -1918,6 +2100,8 @@ const CompareView = {
       return this.hist.flatMap(d => d.comments.map(c => ({ d, c }))).sort((a, b) => new Date(b.c.at) - new Date(a.c.at));
     },
     withPhoto() { return this.hist.filter(d => repPhotoOf(d)); },
+    cr() { return state.criteria; },
+    watchColor: () => WATCH_COLOR, cautionColor: () => CAUTION_COLOR,
     chart() {
       const pts = [];
       for (const d of this.hist) for (const ph of d.phases) { const v = deltaGOf(d, ph); if (v != null) pts.push({ t: new Date(d.date).getTime(), ph, v }); }
@@ -1925,13 +2109,14 @@ const CompareView = {
       if (dates.size < 2) return null;
       const W = 600, H = 220, pl = 34, pr = 12, pt = 10, pb = 26;
       const t0 = Math.min(...pts.map(p => p.t)), t1 = Math.max(...pts.map(p => p.t));
-      const ymax = Math.max(30, Math.max(...pts.map(p => p.v)) * 1.15);
+      const cr = state.criteria;
+      const ymax = Math.max(cr.dgCaution * 1.2, Math.max(...pts.map(p => p.v)) * 1.15);
       const x = t => pl + (t - t0) / Math.max(t1 - t0, 1) * (W - pl - pr);
       const y = v => pt + (1 - v / ymax) * (H - pt - pb);
       const series = PHASES.map(ph => ({ ph, color: PHASE_COLOR[ph], pts: pts.filter(p => p.ph === ph).sort((a, b) => a.t - b.t).map(p => ({ x: x(p.t), y: y(p.v), v: p.v })) })).filter(s => s.pts.length);
       const yt = []; const st = tickStep(ymax, 5); for (let v = 0; v <= ymax + 1e-9; v += st) yt.push({ v, y: y(v) });
       const xt = [...dates].sort().map(t => ({ x: x(t), label: fmtDay(new Date(t).toISOString()).slice(2) }));
-      return { W, H, pl, pr, pt, pb, series, yt, xt, yWatch: y(20), yCaution: y(25) };
+      return { W, H, pl, pr, pt, pb, series, yt, xt, yWatch: y(cr.dgWatch), yCaution: y(cr.dgCaution) };
     },
   },
   methods: {
@@ -1955,7 +2140,7 @@ const CompareView = {
         <tbody><tr v-for="ph in phasesUsed" :key="ph"><td>{{ ph }}</td><td v-for="d in hist" :key="d.id" :class="cls(d, ph)">{{ fmtDG(dg(d, ph)) }}</td>
           <td><b v-if="delta(ph)" :style="{color: delta(ph).warn ? 'var(--orange)' : 'var(--text)'}">{{ delta(ph).text }}</b><span v-else class="sub">–</span></td></tr></tbody></table>
     </div>
-    <div class="xs sub" style="margin-top:6px">등급 색상: 한국형 잠정기준 (양호 &lt; 20 ≤ 관찰 &lt; 25 ≤ 주의). 변화는 값이 있는 첫 진단과 마지막 진단의 차이.</div>
+    <div class="xs sub" style="margin-top:6px">등급 색상: 한국형 잠정기준 (양호 &lt; {{ cr.dgWatch }} ≤ 관심 &lt; {{ cr.dgCaution }} ≤ 주의). 변화는 값이 있는 첫 진단과 마지막 진단의 차이.</div>
     <template v-if="chart">
       <h3 style="margin:20px 0 8px">DeltaG 추이</h3>
       <div class="panel">
@@ -1964,14 +2149,14 @@ const CompareView = {
             <g v-for="t in chart.yt" :key="'y' + t.v"><line :x1="chart.pl" :x2="chart.W - chart.pr" :y1="t.y" :y2="t.y" stroke="var(--line)" stroke-width="0.6"></line><text :x="chart.pl - 5" :y="t.y + 3" text-anchor="end">{{ t.v }}</text></g>
             <text v-for="t in chart.xt" :key="'x' + t.x" :x="t.x" :y="chart.H - 8" text-anchor="middle">{{ t.label }}</text>
           </g>
-          <line :x1="chart.pl" :x2="chart.W - chart.pr" :y1="chart.yWatch" :y2="chart.yWatch" stroke="#d4a600" stroke-dasharray="4 3" opacity="0.7"></line>
-          <line :x1="chart.pl" :x2="chart.W - chart.pr" :y1="chart.yCaution" :y2="chart.yCaution" stroke="#f08a00" stroke-dasharray="4 3" opacity="0.7"></line>
+          <line :x1="chart.pl" :x2="chart.W - chart.pr" :y1="chart.yWatch" :y2="chart.yWatch" :stroke="watchColor" stroke-dasharray="4 3" opacity="0.8"></line>
+          <line :x1="chart.pl" :x2="chart.W - chart.pr" :y1="chart.yCaution" :y2="chart.yCaution" :stroke="cautionColor" stroke-dasharray="4 3" opacity="0.8"></line>
           <g v-for="s in chart.series" :key="s.ph">
             <polyline :points="s.pts.map(p => p.x + ',' + p.y).join(' ')" fill="none" :stroke="s.color" stroke-width="2"></polyline>
             <circle v-for="(p, i) in s.pts" :key="i" :cx="p.x" :cy="p.y" r="3.5" :fill="s.color"><title>{{ s.ph }}상 {{ p.v.toFixed(1) }}</title></circle>
           </g>
         </svg>
-        <div class="legend"><span v-for="s in chart.series" :key="s.ph"><i :style="{background: s.color}"></i>{{ s.ph }}상</span><span>- - 관찰 20 / 주의 25</span></div>
+        <div class="legend"><span v-for="s in chart.series" :key="s.ph"><i :style="{background: s.color}"></i>{{ s.ph }}상</span><span>- - 관심 {{ cr.dgWatch }} / 주의 {{ cr.dgCaution }}</span></div>
       </div>
     </template>
     <template v-if="withPhoto.length">
@@ -2010,8 +2195,24 @@ const PendingView = {
 };
 
 const SettingsView = {
-  data: () => ({}),
+  data: () => ({ f: { ...state.criteria }, savingCrit: false }),
+  watch: {
+    // 다른 사용자가 기준을 바꾸면, 편집 중이 아닐 때만 입력칸을 새 값으로
+    'state.criteria'(v, old) { if (Object.keys(DEFAULT_CRITERIA).every(k => Number(this.f[k]) === old[k])) this.f = { ...v }; },
+  },
   computed: {
+    critNums() { const o = {}; for (const k of Object.keys(DEFAULT_CRITERIA)) o[k] = Number(String(this.f[k]).replace(',', '.')); return o; },
+    critValid() {
+      const c = this.critNums;
+      if (Object.values(c).some(v => !isFinite(v) || v < 0)) return '숫자를 입력하세요.';
+      if (!(c.dgWatch < c.dgCaution)) return 'DeltaG: 관심 기준이 주의 기준보다 작아야 합니다.';
+      if (!(c.locWatchSD < c.locCautionSD)) return '국부신호: 관심 기준이 주의 기준보다 작아야 합니다.';
+      return '';
+    },
+    critDirty() { return Object.keys(DEFAULT_CRITERIA).some(k => this.critNums[k] !== state.criteria[k]); },
+    critMeta() { const m = state.criteriaMeta; return m && m.updatedAt ? `마지막 변경 ${fmtDayTime(m.updatedAt)}${m.updatedBy ? ' · ' + m.updatedBy : ''}` : '기본값 사용 중'; },
+    critMissing() { return state.mode === 'supabase' && state.criteriaMissing; },
+    spectraCount() { return state.diagnoses.reduce((n, d) => n + d.results.filter(r => r.spectrum).length, 0); },
     operator: { get() { return state.operator; }, set(v) { state.operator = v; ls.set('operatorName', v); } },
     counts() {
       const photos = state.diagnoses.reduce((n, d) => n + d.photos.length + d.results.reduce((m, r) => m + r.signatures.length, 0), 0);
@@ -2024,6 +2225,27 @@ const SettingsView = {
   },
   methods: {
     exportJSON, exportCSV,
+    fmtNum(v) { return Number.isInteger(v) ? String(v) : String(v); },
+    async saveCrit() {
+      if (this.critValid || !this.critDirty) return;
+      this.savingCrit = true;
+      try {
+        const central = await saveCriteria(this.critNums);
+        this.f = { ...state.criteria };
+        toast(central ? '판정 기준을 저장했습니다. 모든 사용자에게 적용됩니다.' : '이 브라우저에만 적용했습니다 (중앙 저장소 설정 테이블 없음).');
+      } catch (e) { reportError(e); } finally { this.savingCrit = false; }
+    },
+    critDefaults() { this.f = { ...DEFAULT_CRITERIA }; },
+    critRevert() { this.f = { ...state.criteria }; },
+    async recalcLocal() {
+      const jobs = [];
+      for (const d of state.diagnoses) for (const r of d.results) if (r.spectrum) jobs.push([d.id, r.phase]);
+      if (!jobs.length) { toast('스펙트럼이 있는 진단이 없습니다.'); return; }
+      try {
+        for (let i = 0; i < jobs.length; i++) { state.busy = `국부신호 판정 계산 중 (${i + 1}/${jobs.length})`; await A.refreshLocal(...jobs[i]); }
+      } finally { state.busy = ''; }
+      toast(`스펙트럼 ${jobs.length}개의 국부신호 판정을 다시 계산했습니다.`);
+    },
     async refresh() { await withBusy('새로 불러오는 중', () => reloadAll(true)); toast('최신 데이터로 갱신했습니다.'); },
     async reset() {
       const central = state.mode === 'supabase';
@@ -2062,15 +2284,31 @@ const SettingsView = {
       <div class="row"><button class="linkbtn" @click="exportJSON">⇪ 전체 이력 내보내기 (JSON)</button></div>
       <div class="row"><button class="linkbtn" @click="exportCSV">▦ DeltaG 이력 내보내기 (CSV·엑셀)</button></div>
     </div><div class="sec-f">구간·진단·사진 메타데이터를 내보냅니다. 사진·스펙트럼 원본은 저장소에 보관됩니다.</div></div>
-    <div class="sec"><div class="sec-h">판단 기준 (표시용)</div><div class="card">
-      <div class="kv"><span class="k">DeltaG 한국형 잠정기준</span><span class="v">양호 &lt; 20 ≤ 관찰 &lt; 25 ≤ 주의</span></div>
-      <div class="kv"><span class="k">Wirescan 권고치</span><span class="v">65 / 75 (×10⁻³)</span></div>
-      <div class="row xs sub">한국형 기준은 부산울산본부 63개 측정점 기반의 잠정값이며, 데이터가 쌓이면 갱신합니다.</div>
-    </div></div>
+    <div class="sec"><div class="sec-h">판정 기준 (한국형 잠정기준)</div><div class="card">
+      <div class="row xs" v-if="critMissing" style="display:block;color:var(--orange)">⚠ 중앙 저장소에 설정 테이블이 없어 이 브라우저에만 저장됩니다. 새 setup.sql을 Supabase SQL Editor에서 한 번 더 실행하세요.</div>
+      <div class="row bold small">DeltaG</div>
+      <div class="field"><label><span class="chip yellow">관심</span></label><input class="input mono crit" inputmode="decimal" v-model="f.dgWatch"><span class="sub unit">이상</span></div>
+      <div class="field"><label><span class="chip rose">주의</span></label><input class="input mono crit" inputmode="decimal" v-model="f.dgCaution"><span class="sub unit">이상</span></div>
+      <div class="row xs sub">양호 &lt; {{ critNums.dgWatch }} ≤ 관심 &lt; {{ critNums.dgCaution }} ≤ 주의 · Wirescan 권고치 65 / 75 (×10⁻³)</div>
+      <div class="row bold small">국부신호 <span class="sub xs" style="font-weight:400">(Normalized Signature, 평균 변동 대비)</span></div>
+      <div class="field"><label><span class="chip yellow">관심</span></label><input class="input mono crit" inputmode="decimal" v-model="f.locWatchSD"><span class="sub unit">SD 초과</span></div>
+      <div class="field"><label><span class="chip rose">주의</span></label><input class="input mono crit" inputmode="decimal" v-model="f.locCautionSD"><span class="sub unit">SD 초과</span></div>
+      <div class="row xs" v-if="critValid" style="color:var(--red)">{{ critValid }}</div>
+      <div class="row btnrow">
+        <button class="btn small" @click="critDefaults">기본값 (20·25 / 2·3)</button>
+        <button class="btn small" v-if="critDirty" @click="critRevert">되돌리기</button>
+        <span class="grow"></span>
+        <button class="btn prim small" :disabled="!!critValid || !critDirty || savingCrit" @click="saveCrit">저장</button>
+      </div>
+      <div class="row xs sub">{{ critMeta }}</div>
+    </div><div class="sec-f">시범진단 기간의 잠정 기준입니다. 저장하면 모든 사용자의 지도 색, 진단 판정, Signature 뷰어의 관심·주의 기준선에 바로 적용됩니다. 기준이 확정되면 고정할 예정입니다.</div></div>
+    <div class="sec"><div class="card">
+      <div class="row"><button class="linkbtn" @click="recalcLocal">↻ 국부신호 판정 다시 계산 ({{ spectraCount }}개 스펙트럼)</button></div>
+    </div><div class="sec-f">국부신호 판정은 스펙트럼을 올릴 때와 진단 화면을 열 때 자동으로 계산됩니다. 이전에 올린 스펙트럼의 판정이 비어 있으면 눌러 주세요 (SD 기준만 바꿨다면 다시 계산할 필요 없음).</div></div>
     <div class="sec"><div class="card"><div class="row"><button class="linkbtn danger" @click="reset">예시 데이터로 초기화</button></div></div>
       <div class="sec-f">{{ mode === 'supabase' ? '중앙 저장소의 모든 입력 데이터가 삭제되고 이관 자료만 남습니다. 시연 준비용입니다.' : '입력한 모든 진단과 사진이 삭제되고 이관 자료만 남습니다.' }}</div></div>
     <div class="sec"><div class="sec-h">앱 정보</div><div class="card">
-      <div class="kv"><span class="k">버전</span><span class="v">0.2 (웹 데모)</span></div>
+      <div class="kv"><span class="k">버전</span><span class="v">0.3 (웹 데모)</span></div>
       <div class="kv"><span class="k">제작</span><span class="v">(주)액트투</span></div>
     </div></div>
   </div>`,
@@ -2187,6 +2425,7 @@ async function init() {
       data = await store.loadAll();
     }
     state.sites = data.sites; state.diagnoses = data.diagnoses;
+    await loadCriteria();
     lastReload = Date.now();
     store.subscribe(applyRemote);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.mode === 'supabase') reloadAll(); });
