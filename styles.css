@@ -66,6 +66,7 @@ a { color: var(--accent); text-decoration: none; }
 .badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--red); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .banner { font-size: 12.5px; padding: 6px 12px; text-align: center; background: color-mix(in srgb, var(--orange) 15%, var(--bg)); color: var(--orange); }
+.banner.err { background: color-mix(in srgb, var(--red) 14%, var(--bg)); color: var(--red); font-weight: 600; }
 .banner.ok { background: color-mix(in srgb, var(--teal) 12%, var(--bg)); color: var(--teal); }
 
 /* ---------- 목록 섹션 (iOS inset grouped) ---------- */
@@ -250,3 +251,13 @@ table.dg td:first-child, table.dg th:first-child { text-align: left; font-weight
 .errorbox { max-width: 560px; margin: 40px auto; background: var(--card); border-radius: 14px; padding: 20px; line-height: 1.55; }
 .dropzone { border: 2px dashed var(--line); border-radius: 12px; padding: 14px; text-align: center; color: var(--sub); font-size: 13.5px; margin: 10px 12px; }
 .dropzone.over { border-color: var(--accent); color: var(--accent); }
+
+/* 접속지점 비교표 */
+table.jt { margin-top: 4px; }
+table.jt th, table.jt td { padding: 4px 8px; font-size: 12.5px; white-space: nowrap; }
+table.jt .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
+table.jt td.jc-watch { background: color-mix(in srgb, #f5c400 28%, transparent); font-weight: 700; }
+table.jt td.jc-caution { background: color-mix(in srgb, var(--rose) 22%, transparent); color: var(--rose); font-weight: 700; }
+table.jt td.jc-floor { color: var(--sub); }
+table.jt td .dev { font-size: 10px; font-weight: 400; color: var(--sub); line-height: 1.1; }
+table.jt td.jc-caution .dev { color: var(--rose); }
