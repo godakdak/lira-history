@@ -400,17 +400,18 @@ const A = {
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
     return `${phase}상 ← ${pasted ? '클립보드' + (data.label ? ' (' + data.label + ')' : '') : name}`;
   },
-  /** LIRA 측정 파일 묶음(.lira 필수, .anl·.out·.sdt 선택) */
+  /** LIRA 측정 파일 묶음(.lira 필수, .anl·.out·.sdt·.pbd 선택) */
   async attachLiraGroup(g, diagId, stage, fallbackPhase) {
     const f = g.files;
     const lira = Lira.parseLiraBinary(await f.lira.arrayBuffer());
     const anl = f.anl ? Lira.readAnl(await f.anl.text()) : null;
     const out = f.out ? Lira.readOut(await f.out.text()) : null;
     const sdt = f.sdt ? Lira.readSdt(await f.sdt.text()) : null;
+    const pbd = f.pbd ? Lira.parsePbd(await f.pbd.arrayBuffer()) : null;
     let phase = anl?.phase || lira.phaseName || phaseFromFileName(g.key) || fallbackPhase;
     if (!phase) phase = await askPhase(g.key);
     if (!phase) throw new Error('상을 정하지 않아 건너뜀');
-    const sp = Lira.spectrumFromLira(lira, anl);
+    const sp = Lira.spectrumFromLira(lira, anl, pbd);
     const text = Lira.spectrumToText(sp);
     const ln = Lira.liraNormalization(sdt, anl);
     const id = uuid(), path = `spectra/${id}.txt`;
@@ -432,6 +433,7 @@ const A = {
         bandPct: anl?.bandPct ?? null, maxFreqMHz: anl?.maxFreqMHz ?? null,
         bandHz: anl?.bandPct && anl?.maxFreqMHz ? anl.maxFreqMHz * 1e6 * anl.bandPct / 100 : null,
         vr: anl?.vr ?? out?.vr ?? null, residZL_uH: anl?.residZL_uH ?? null,
+        probe: pbd ? pbd.enabled : null, probeZ0: pbd ? pbd.z0 : null,
         norm: ln, deltaG: out?.deltaG ?? null, termination: out?.termination || '',
       },
     };
@@ -448,6 +450,8 @@ const A = {
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
     const notes = [];
     if (dgSet) notes.push(`DeltaG ${fmtDG(out.deltaG)} 자동 입력`);
+    if (pbd && pbd.enabled) notes.push('프로브 보정 적용');
+    if (!pbd) notes.push('⚠ .pbd 없음: LIRA에서 프로브 보정을 켰다면 Signature가 달라짐');
     if (!anl) notes.push('⚠ .anl 없음: 직렬 인덕턴스 보정 안 됨');
     if (!sdt) notes.push('.sdt 없음: 0 dB 기준선은 앱 추정');
     return `${phase}상 ← ${g.key}` + (notes.length ? ` (${notes.join(', ')})` : '');
@@ -935,6 +939,7 @@ const SignatureCompare = {
       const initial = s?.sigBandwidthMHz ?? (liraSrc ? liraSrc.ref.lira.bandHz / 1e6 : null) ?? this.guideline ?? this.maxFreqMHz * 0.4;
       this.bandwidthMHz = clamp(initial, this.bwLo, this.bwHi);
       if (!this.length) this.vrMode = 'manual';
+      this.normalize = !!this.length;   // LIRA Signature 탭 기본값 (Norm ON)
       this.schedule();
     },
     schedule() {
@@ -951,7 +956,7 @@ const SignatureCompare = {
       } finally { this.loading = false; }
       if (token !== this.token) return;
       const bwHz = clamp(this.bandwidthMHz, this.bwLo, this.bwHi) * 1e6;
-      const L = this.length, xm = this.xMax, ownMax = Math.max(xm, L || 0) * 1.02;
+      const L = this.length, xm = this.xMax;
       const dates = srcs.map(s => s.diag.date).sort();
       this.vrCache = this.vrCache || new Map();
       const out = [];
@@ -963,13 +968,9 @@ const SignatureCompare = {
           if (!this.vrCache.has(k)) this.vrCache.set(k, Sig.estimateVR(data, bwHz, this.windowName, L));
           const est = this.vrCache.get(k); if (est) vr = est;
         }
-        const r = Sig.computeSignature(data, bwHz, this.windowName, vr, ownMax);
-        let norm = Sig.makeNormalization(r, L);
-        const ln = src.ref.lira?.norm, lbw = src.ref.lira?.bandHz;
-        if (norm && ln && lbw && Math.abs(bwHz - lbw) / lbw < 0.02 && this.windowName === '4 Term B-H') {
-          norm = { ...norm, slope: ln.slope, zeroDB: ln.zero, sd: ln.sd ?? norm.sd, source: 'LIRA 분석값' };
-        }
-        const trace = Sig.displayTrace(r, norm, this.normalize, this.reversed.includes(src.id), L, xm);
+        const { r, norm, trace } = signatureCurve(data, src.ref, {
+          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: this.reversed.includes(src.id),
+        });
         let title, color;
         if (this.mode === 'timeline') {
           title = fmtDay(src.diag.date) + ' ' + src.phase + '상';
@@ -980,8 +981,10 @@ const SignatureCompare = {
           color = PHASE_COLOR[src.phase] || COLORS.gray;
         }
         const parts = [`VR ${vr.toFixed(3)}`];
-        parts.push(norm ? `감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB` : '감쇠 보정 불가');
-        if (this.normalize && norm) parts.push(`기준선 ${norm.source} · 1 SD ${norm.sd.toFixed(1)} dB`);
+        if (this.normalize && norm) {
+          parts.push(`감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB`);
+          parts.push(`기준선 ${norm.source} · 1 SD ${norm.sd.toFixed(1)} dB`);
+        } else if (this.normalize) parts.push('긍장 없음: 정규화 불가');
         parts.push(src.ref.label || src.ref.originalName);
         out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
       });
@@ -1002,7 +1005,7 @@ const SignatureCompare = {
     </div>
     <div v-if="!allSources.length" class="panel">
       <div class="bold">업로드된 스펙트럼 데이터가 없습니다.</div>
-      <div class="sub small" style="margin-top:4px">진단 기록의 상별 결과에서 LIRA 측정 파일(.lira·.anl·.out·.sdt) 또는 스펙트럼 텍스트를 불러오면, 여기에서 Signature를 계산해 겹쳐 봅니다.</div>
+      <div class="sub small" style="margin-top:4px">진단 기록의 상별 결과에서 LIRA 측정 파일(.lira·.anl·.out·.sdt·.pbd) 또는 스펙트럼 텍스트를 불러오면, 여기에서 Signature를 계산해 겹쳐 봅니다.</div>
     </div>
     <template v-else>
       <div class="seg" style="margin-bottom:8px">
@@ -1030,7 +1033,7 @@ const SignatureCompare = {
       </div>
       <div class="panel">
         <div class="optrow">
-          <div class="grow"><div class="t">Normalized</div><div class="sub xs">0 dB = 평균 변동 + 1 SD. 0 dB 위로 솟은 신호만 표시합니다.</div></div>
+          <div class="grow"><div class="t">Normalized</div><div class="sub xs">LIRA Norm ON: 감쇠 보정 후 0 dB = 평균 변동 + 1 SD, 0 dB 위 신호만 표시. 끄면 Norm OFF(보정 없는 원 신호).</div></div>
           <label class="toggle"><input type="checkbox" v-model="normalize"><span></span></label>
         </div>
         <div class="optrow" v-if="normalize" style="padding-left:12px">
@@ -1065,11 +1068,26 @@ const SignatureCompare = {
   </div>`,
 };
 
+/**
+ * 스펙트럼 1개의 Signature 곡선 (LIRA와 같은 계산).
+ * 감쇠 기울기·0 dB 기준선은 앱이 계산하고, LIRA 분석값(.sdt)이 있고 대역(±2%)·윈도우(4 Term B-H)가 같으면 그 값을 쓴다.
+ */
+function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed }) {
+  const L = length || null;
+  const r = Sig.computeSignature(data, bwHz, windowName, vr, Math.max(xMax, L || 0) * 1.02);
+  let norm = Sig.makeNormalization(r, L);
+  const ln = ref?.lira?.norm, lbw = ref?.lira?.bandHz;
+  if (norm && ln && lbw && Math.abs(bwHz - lbw) / lbw < 0.02 && windowName === '4 Term B-H') {
+    norm = { ...norm, slope: ln.slope, zeroDB: ln.zero, sd: ln.sd ?? norm.sd, source: 'LIRA 분석값' };
+  }
+  return { r, norm, trace: Sig.displayTrace(r, norm, normalize, reversed, L, xMax) };
+}
+
 // 진단 상세 화면용 미리보기
 const SignaturePreview = {
   components: { SignatureChart },
   props: { refObj: Object, site: Object, phase: String },
-  data: () => ({ curves: [], xMax: 100, caption: '', cursor: null }),
+  data: () => ({ curves: [], xMax: 100, caption: '', cursor: null, normalized: false }),
   computed: { key() { return [this.refObj.fileName, this.site.sigBandwidthMHz, this.site.sigWindow, this.site.lengthM].join('|'); } },
   watch: { key: { immediate: true, handler() { this.build(); } } },
   methods: {
@@ -1084,14 +1102,15 @@ const SignaturePreview = {
       let vr = 0.55;
       if (L) { const est = Sig.estimateVR(data, bw, win, L); if (est) vr = est; }
       const xm = L ? L * 1.05 : vr * Sig.C / (2 * data.df) / 4;
-      const r = Sig.computeSignature(data, bw, win, vr, xm * 1.02);
-      const norm = Sig.makeNormalization(r, L);
+      const { r, norm, trace } = signatureCurve(data, this.refObj, { bwHz: bw, windowName: win, vr, length: L, xMax: xm, normalize: !!L, reversed: false });
       this.xMax = xm;
-      this.caption = `대역폭 ${(bw / 1e6).toFixed(2)} MHz · ${win} · VR ${vr.toFixed(3)} · 분해능 ${r.resolutionM.toFixed(1)} m` + (norm ? ` · 감쇠 보정 ${(norm.slope * 1000).toFixed(1)} dB/km` : '');
-      this.curves = [markRaw({ id: this.phase, title: this.phase + '상', color: PHASE_COLOR[this.phase] || COLORS.gray, trace: markRaw(Sig.displayTrace(r, norm, false, false, L, xm)) })];
+      this.normalized = !!(L && norm);
+      this.caption = `대역폭 ${(bw / 1e6).toFixed(2)} MHz · ${win} · VR ${vr.toFixed(3)} · 분해능 ${r.resolutionM.toFixed(1)} m · ` +
+        (this.normalized ? `Normalized (기준선 ${norm.source})` : 'Normalized OFF (긍장 없음)');
+      this.curves = [markRaw({ id: this.phase, title: this.phase + '상', color: PHASE_COLOR[this.phase] || COLORS.gray, trace: markRaw(trace) })];
     },
   },
-  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="site.lengthM" :cursor="null" :height="170" :interactive="false"></signature-chart></div>
+  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="site.lengthM" :cursor="null" :height="170" :interactive="false" :normalized="normalized"></signature-chart></div>
     <div class="sub xs mono" style="margin-top:4px">{{ caption }}</div></div>`,
 };
 
@@ -1697,7 +1716,7 @@ const DiagView = {
       const { groups, loose } = Lira.groupLiraFiles(files);
       const done = [], failed = [];
       for (const g of groups) {
-        if (!g.files.lira) { failed.push(`${g.key}: .lira 파일이 없습니다 (.anl·.out·.sdt만으로는 스펙트럼을 만들 수 없음)`); continue; }
+        if (!g.files.lira) { failed.push(`${g.key}: .lira 파일이 없습니다 (.anl·.out·.sdt·.pbd만으로는 스펙트럼을 만들 수 없음)`); continue; }
         try { done.push(await A.attachLiraGroup(g, this.id, stage, target === '*' ? null : target)); }
         catch (e) { state.busy = ''; failed.push(`${g.key}: ${e.message}`); }
       }
@@ -1834,10 +1853,10 @@ const DiagView = {
           <button class="btn prim" @click="pickFiles('*')">📂 LIRA 측정 파일 한 번에 불러오기</button>
           <button class="btn" @click="pasteSpectrum(null)">📋 클립보드 붙여넣기</button>
         </div>
-        <div style="margin-top:6px">.lira·.anl·.out·.sdt 또는 스펙트럼 텍스트(.txt)<br>PC에서는 파일을 여기로 끌어다 놓아도 됩니다.</div>
+        <div style="margin-top:6px">.lira·.anl·.out·.sdt·.pbd 또는 스펙트럼 텍스트(.txt)<br>PC에서는 파일을 여기로 끌어다 놓아도 됩니다.</div>
       </div>
-      <input ref="files" type="file" multiple class="hidden" accept=".lira,.anl,.out,.sdt,.txt,.tsv,.csv,text/plain,application/octet-stream" @change="onFiles">
-    </div><div class="sec-f">LIRA 측정 폴더의 같은 이름 파일(.lira·.anl·.out·.sdt)을 함께 고르면 상(측정 설명의 Phase A/B/C/N), DeltaG, 긍장, 분석대역, LIRA 정규화 기준선을 자동으로 가져옵니다. 텍스트 파일은 이름 끝의 _A·_B·_C·_N으로 상을 구분합니다. LIRA에서 클립보드로 복사한 스펙트럼은 📋 붙여넣기 버튼을 누르거나 이 화면에서 Ctrl+V로 바로 넣을 수 있습니다.</div></div>
+      <input ref="files" type="file" multiple class="hidden" accept=".lira,.anl,.out,.sdt,.pbd,.txt,.tsv,.csv,text/plain,application/octet-stream" @change="onFiles">
+    </div><div class="sec-f">LIRA 측정 폴더의 같은 이름 파일(.lira·.anl·.out·.sdt·.pbd)을 함께 고르면 상(측정 설명의 Phase A/B/C/N), DeltaG, 긍장, 분석대역, 프로브 보정, LIRA 정규화 기준선을 자동으로 가져옵니다. 텍스트 파일은 이름 끝의 _A·_B·_C·_N으로 상을 구분합니다. LIRA에서 클립보드로 복사한 스펙트럼은 📋 붙여넣기 버튼을 누르거나 이 화면에서 Ctrl+V로 바로 넣을 수 있습니다.</div></div>
 
     <div class="sec" v-for="ph in d.phases" :key="ph"><div class="sec-h">{{ ph }}상 결과</div><div class="card">
       <div class="field"><label>DeltaG</label>
