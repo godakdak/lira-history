@@ -452,6 +452,19 @@ const A = {
     if (!sdt) notes.push('.sdt 없음: 0 dB 기준선은 앱 추정');
     return `${phase}상 ← ${g.key}` + (notes.length ? ` (${notes.join(', ')})` : '');
   },
+  /** 구간 삭제: 그 구간의 진단 기록(사진·스펙트럼 포함)도 모두 삭제 */
+  async deleteSite(id) {
+    for (const d of [...historyOf(id)]) await A.deleteDiagnosis(d.id);
+    await store.deleteSite(id);
+    const i = state.sites.findIndex(x => x.id === id);
+    if (i >= 0) state.sites.splice(i, 1);
+  },
+  /** 진단 기록을 다른 구간으로 옮김 (구간을 잘못 고른·새로 만든 경우) */
+  async moveDiagnosis(diagId, toSiteId) {
+    await A.updateDiagnosis(diagId, d => { d.siteId = toSiteId; });
+    const d = diagById(diagId);
+    if (d) await A.confirmSiteLocation(toSiteId, repPhotoOf(d));
+  },
   async removeSpectrum(diagId, phase) {
     const d = diagById(diagId); const r = d && resultOf(d, phase); const sp = r?.spectrum;
     if (!sp) return;
@@ -1258,10 +1271,112 @@ const DiagRow = {
     </div>`,
 };
 
+function composeSiteName(from, to) { from = (from || '').trim(); to = (to || '').trim(); return to ? `${from} ~ ${to}` : from; }
+
+// 구간(현장) 정보 수정
+const SiteEditor = {
+  props: { site: Object },
+  emits: ['close'],
+  data() {
+    const s = this.site;
+    const hqList = HQ_LIST.includes(s.hq) || !s.hq ? HQ_LIST : [s.hq, ...HQ_LIST];
+    return {
+      hqList, saving: false,
+      f: {
+        name: s.name || '', hq: s.hq || HQ_LIST[0], office: s.office || '', fromName: s.fromName || '', fromCode: s.fromCode || '',
+        toName: s.toName || '', toCode: s.toCode || '', kind: s.kind || '지중', cableType: s.cableType || '', size: s.size || '',
+        mfg: s.mfg || '', maker: s.maker || '', lengthText: s.lengthM != null ? String(s.lengthM) : '',
+      },
+    };
+  },
+  computed: {
+    lengthVal() { const t = this.f.lengthText.replace(/,/g, '').trim(); if (!t) return null; const v = Number(t); return isFinite(v) && v > 0 ? v : NaN; },
+    canSave() { return !this.saving && !!(this.f.name.trim() || this.f.fromName.trim()) && !Number.isNaN(this.lengthVal); },
+  },
+  watch: {
+    // 구간명이 '시점 ~ 종점' 자동 이름이면 설비명을 고칠 때 같이 바뀜
+    'f.fromName'(v, old) { if (this.f.name.trim() === composeSiteName(old, this.f.toName)) this.f.name = composeSiteName(v, this.f.toName); },
+    'f.toName'(v, old) { if (this.f.name.trim() === composeSiteName(this.f.fromName, old)) this.f.name = composeSiteName(this.f.fromName, v); },
+  },
+  methods: {
+    async save() {
+      if (!this.canSave) return;
+      this.saving = true;
+      const f = this.f, up = x => x.trim().toUpperCase();
+      try {
+        await A.updateSite(this.site.id, s => {
+          s.name = f.name.trim() || composeSiteName(f.fromName, f.toName);
+          s.hq = f.hq; s.office = f.office.trim(); s.fromName = f.fromName.trim(); s.fromCode = up(f.fromCode);
+          s.toName = f.toName.trim(); s.toCode = up(f.toCode); s.kind = f.kind; s.cableType = f.cableType.trim();
+          s.size = f.size.trim(); s.mfg = f.mfg.trim(); s.maker = f.maker.trim(); s.lengthM = this.lengthVal;
+        });
+        toast('구간 정보를 저장했습니다.');
+        this.$emit('close');
+      } catch (e) { reportError(e); } finally { this.saving = false; }
+    },
+  },
+  template: `<div class="overlay" @click.self="$emit('close')">
+    <div class="sheet tall">
+      <div class="sheet-h"><button class="tbtn" @click="$emit('close')">취소</button><div class="title">구간 정보 수정</div><button class="tbtn strong" :disabled="!canSave" @click="save">저장</button></div>
+      <div class="sheet-b">
+        <div class="sec"><div class="card">
+          <div class="field"><label>구간명</label><input class="input" v-model="f.name" placeholder="시점 ~ 종점"></div>
+          <div class="field"><label>본부</label><select class="input" v-model="f.hq"><option v-for="h in hqList" :key="h">{{ h }}</option></select></div>
+          <div class="field"><label>사업소</label><input class="input" v-model="f.office" placeholder="예: 중부산"></div>
+        </div><div class="sec-f">구간명은 시점·종점 설비명을 고치면 함께 바뀝니다 (직접 고친 이름은 그대로 둠).</div></div>
+        <div class="sec"><div class="sec-h">시점 · 종점</div><div class="card">
+          <div class="field"><label>시점 설비명</label><input class="input" v-model="f.fromName"></div>
+          <div class="field"><label>시점 전산화번호</label><input class="input code" style="text-transform:uppercase" v-model="f.fromCode"></div>
+          <div class="field"><label>종점 설비명</label><input class="input" v-model="f.toName"></div>
+          <div class="field"><label>종점 전산화번호</label><input class="input code" style="text-transform:uppercase" v-model="f.toCode"></div>
+        </div></div>
+        <div class="sec"><div class="sec-h">케이블</div><div class="card">
+          <div class="field"><label>포설</label><div class="seg grow"><button :class="{on: f.kind === '지중'}" @click="f.kind = '지중'">지중</button><button :class="{on: f.kind === '해저'}" @click="f.kind = '해저'">해저</button></div></div>
+          <div class="field"><label>선종</label><input class="input" v-model="f.cableType" placeholder="CNCV-W 등"></div>
+          <div class="field"><label>규격</label><input class="input" v-model="f.size" inputmode="numeric" placeholder="㎟"></div>
+          <div class="field"><label>긍장</label><input class="input mono" v-model="f.lengthText" inputmode="decimal" placeholder="m" :style="{color: Number.isNaN(lengthVal) ? 'var(--red)' : ''}"><span class="sub">m</span></div>
+          <div class="field"><label>제조년월</label><input class="input" v-model="f.mfg" inputmode="numeric"></div>
+          <div class="field"><label>제조사</label><input class="input" v-model="f.maker"></div>
+        </div><div class="sec-f">긍장은 Signature 감쇠 보정·정규화와 VR 자동 계산에 쓰입니다.</div></div>
+      </div>
+    </div>
+  </div>`,
+};
+
+// 진단을 옮길 구간 고르기
+const SitePicker = {
+  props: { exclude: String, hq: String },
+  emits: ['pick', 'close'],
+  data: () => ({ q: '' }),
+  computed: {
+    list() {
+      const key = this.q.trim();
+      const arr = key ? searchSites(key) : state.sites.filter(s => s.hq === this.hq);
+      return arr.filter(s => s.id !== this.exclude).sort((a, b) => a.name.localeCompare(b.name, 'ko')).slice(0, 60);
+    },
+  },
+  methods: { specText, codesText, historyOf },
+  template: `<div class="overlay" @click.self="$emit('close')">
+    <div class="sheet tall">
+      <div class="sheet-h"><button class="tbtn" @click="$emit('close')">취소</button><div class="title">옮길 구간 선택</div><span style="width:56px"></span></div>
+      <div class="sheet-b">
+        <input class="search" style="margin-top:12px" v-model="q" placeholder="🔍 구간명·전산화번호·사업소">
+        <div class="sec"><div class="card">
+          <div class="row sub small" v-if="!list.length">{{ q ? '찾는 구간이 없습니다.' : '같은 본부의 다른 구간이 없습니다. 검색해 보세요.' }}</div>
+          <a class="rowlink" v-for="s in list" :key="s.id" @click="$emit('pick', s)"><div class="grow">
+            <div class="small bold">{{ s.name }}</div>
+            <div class="xs sub">{{ [s.hq, codesText(s), '이력 ' + historyOf(s.id).length + '회'].filter(Boolean).join(' · ') }}</div>
+          </div></a>
+        </div><div class="sec-f" v-if="!q">같은 본부({{ hq }}) 구간을 보여 줍니다. 다른 본부는 검색하세요.</div></div>
+      </div>
+    </div>
+  </div>`,
+};
+
 const SiteView = {
-  components: { LocLabel, MiniMap, DiagRow, LocationPicker },
+  components: { LocLabel, MiniMap, DiagRow, LocationPicker, SiteEditor },
   props: ['id'],
-  data: () => ({ editing: false, draft: '', picker: false }),
+  data: () => ({ editing: false, draft: '', picker: false, editSite: false }),
   computed: {
     site() { return siteById(this.id); },
     hist() { return historyOf(this.id); },
@@ -1276,13 +1391,28 @@ const SiteView = {
     go, specText, codesText, geoText, isConfirmed,
     async saveNote() { await A.updateSite(this.id, s => { s.note = this.draft; }); this.editing = false; },
     async picked(c) { await A.updateSite(this.id, s => { s.location = c; s.locSource = 'manual'; }); toast('위치를 지정했습니다.'); },
+    async delSite() {
+      const s = this.site, n = this.hist.length;
+      const ok = n
+        ? (await dialog({ title: '구간 삭제', text: `"${s.name}" 구간과 진단 기록 ${n}건(사진·스펙트럼 포함)이 모두 삭제됩니다. 되돌릴 수 없습니다.\n\n진단 기록을 살리려면 먼저 각 진단에서 '다른 구간으로 옮기기'를 하세요.\n계속하려면 "삭제"를 입력하세요.`, input: true, buttons: [{ label: '취소', value: false }, { label: '삭제', value: 'check', danger: true }] })) === '삭제'
+        : await confirmBox(`"${s.name}" 구간을 삭제할까요?`, '삭제', true);
+      if (!ok) return;
+      try {
+        await withBusy('삭제 중', () => A.deleteSite(this.id));
+        toast('구간을 삭제했습니다.');
+        switchTab(state.tab === 'map' ? 'map' : 'sites');
+      } catch (e) { reportError(e); }
+    },
   },
   template: `<div class="page" v-if="site">
-    <div class="card" style="padding:12px 16px">
-      <div class="xs sub">{{ site.hq }}{{ site.office ? ' · ' + site.office : '' }}</div>
-      <div style="margin:4px 0" class="small">{{ specText(site) }}</div>
-      <div class="xs sub code" v-if="codesText(site)"># 전산화번호 {{ codesText(site) }}</div>
-      <div class="xs sub" v-if="site.maker">제조사 {{ site.maker }}</div>
+    <div class="card">
+      <div style="padding:12px 16px">
+        <div class="xs sub">{{ site.hq }}{{ site.office ? ' · ' + site.office : '' }}</div>
+        <div style="margin:4px 0" class="small">{{ specText(site) }}</div>
+        <div class="xs sub code" v-if="codesText(site)"># 전산화번호 {{ codesText(site) }}</div>
+        <div class="xs sub" v-if="site.maker">제조사 {{ site.maker }}</div>
+      </div>
+      <div class="row"><button class="linkbtn" @click="editSite = true">✎ 구간 정보 수정</button></div>
     </div>
     <div class="sec"><div class="sec-h">위치</div><div class="card">
       <template v-if="site.location">
@@ -1295,6 +1425,7 @@ const SiteView = {
         <div class="row"><button class="linkbtn" @click="picker = true">📌 지도에서 위치 지정</button></div>
         <div class="row xs sub">새 진단에서 대표사진을 등록하면 사진 GPS로 자동 확정됩니다.</div>
       </template>
+      <div class="row" v-else><button class="linkbtn" @click="picker = true">📌 위치 다시 지정</button></div>
     </div></div>
     <div class="sec"><div class="sec-h">진단 이력 {{ hist.length }}회</div><div class="card">
       <div class="row sub" v-if="!hist.length">진단 기록이 없습니다.</div>
@@ -1316,7 +1447,10 @@ const SiteView = {
         <div class="row"><button class="linkbtn" @click="draft = site.note; editing = true">{{ site.note ? '메모 수정' : '메모 추가' }}</button></div>
       </template>
     </div></div>
+    <div class="sec"><div class="card"><div class="row"><button class="linkbtn danger" @click="delSite">이 구간 삭제</button></div></div>
+      <div class="sec-f">{{ hist.length ? '구간을 삭제하면 진단 기록 ' + hist.length + '건도 함께 삭제됩니다.' : '진단 기록이 없는 구간입니다.' }}</div></div>
     <location-picker v-if="picker" :initial="site.location" @pick="picked" @close="picker = false"></location-picker>
+    <site-editor v-if="editSite" :site="site" @close="editSite = false"></site-editor>
   </div>
   <div class="empty" v-else><div class="big">❓</div>구간을 찾을 수 없습니다.</div>`,
 };
@@ -1506,9 +1640,9 @@ const NewView = {
 // 화면: 진단 상세 (현장 일부 입력 → 사무실에서 나머지)
 
 const DiagView = {
-  components: { StatusBadge, PhaseToggles, PhotoGrid, PhotoAdd, PhotoDetail, SignaturePreview },
+  components: { StatusBadge, PhaseToggles, PhotoGrid, PhotoAdd, PhotoDetail, SignaturePreview, SitePicker },
   props: ['id'],
-  data: () => ({ viewing: null, commentText: '', commentStage: '사무실', importTarget: null, dragOver: false }),
+  data: () => ({ viewing: null, commentText: '', commentStage: '사무실', importTarget: null, dragOver: false, moving: false }),
   computed: {
     d() { return diagById(this.id); },
     site() { return this.d ? siteById(this.d.siteId) : null; },
@@ -1645,6 +1779,20 @@ const DiagView = {
       this.commentText = '';
     },
     async delComment(c) { if (await confirmBox('이 코멘트를 삭제할까요?', '삭제', true)) this.upd(d => { d.comments = d.comments.filter(x => x.id !== c.id); }); },
+    async moveTo(target) {
+      this.moving = false;
+      const from = this.site;
+      const ok = await dialog({ title: '다른 구간으로 옮기기', text: `이 진단 기록(${fmtDay(this.d.date)})을\n"${from.name}" → "${target.name}"\n으로 옮길까요? 사진·스펙트럼·코멘트도 함께 옮겨집니다.`, buttons: [{ label: '취소', value: false }, { label: '옮기기', value: true, prim: true }] });
+      if (!ok) return;
+      try {
+        await withBusy('옮기는 중', () => A.moveDiagnosis(this.id, target.id));
+        toast(`"${target.name}" 구간으로 옮겼습니다.`);
+        if (!historyOf(from.id).length) {
+          const del = await dialog({ title: '빈 구간 정리', text: `"${from.name}" 구간에 남은 진단 기록이 없습니다. 이 구간을 삭제할까요?`, buttons: [{ label: '남겨 두기', value: false }, { label: '구간 삭제', value: true, danger: true }] });
+          if (del) await withBusy('삭제 중', () => A.deleteSite(from.id));
+        }
+      } catch (e) { reportError(e); }
+    },
     async del() {
       if (!(await confirmBox('이 진단 기록과 사진을 삭제할까요?', '삭제', true))) return;
       const siteId = this.d.siteId, id = this.id;
@@ -1660,7 +1808,7 @@ const DiagView = {
   template: `<div class="page" v-if="d && site">
     <div class="card" v-if="afterCreate" style="padding:12px 16px;color:var(--green)">✓ 현장 기록이 저장되었습니다. 결과는 지금 입력하거나 사무실에서 '추가 입력' 탭으로 이어서 입력하세요.</div>
     <div class="sec"><div class="card">
-      <div class="row"><div class="grow"><b>{{ site.name }}</b><div class="xs sub">{{ specText(site) }}</div></div><status-badge :status="st"></status-badge></div>
+      <div class="row"><div class="grow" style="cursor:pointer" @click="go('/site/' + site.id)"><b>{{ site.name }} <span class="sub">›</span></b><div class="xs sub">{{ specText(site) }}</div></div><status-badge :status="st"></status-badge></div>
       <div class="row xs" v-if="missing.length" style="color:var(--orange)">남은 입력: {{ missing.join(', ') }}</div>
       <div class="row xs sub" v-if="d.imported">출처: {{ d.source }}</div>
     </div></div>
@@ -1726,7 +1874,11 @@ const DiagView = {
       <div class="row"><div class="seg" style="width:170px"><button :class="{on: commentStage === '현장'}" @click="commentStage = '현장'">현장</button><button :class="{on: commentStage === '사무실'}" @click="commentStage = '사무실'">사무실</button></div><span class="grow"></span><button class="btn prim small" :disabled="!commentText.trim()" @click="addComment">등록</button></div>
     </div><div class="sec-f">작성자는 '설정'의 측정자 이름({{ operator || '미입력' }})으로 기록됩니다.</div></div>
 
-    <div class="sec"><div class="card"><div class="row"><button class="linkbtn danger" @click="del">이 진단 기록 삭제</button></div></div></div>
+    <div class="sec"><div class="card">
+      <div class="row"><button class="linkbtn" @click="moving = true">⇄ 다른 구간으로 옮기기</button></div>
+      <div class="row"><button class="linkbtn danger" @click="del">이 진단 기록 삭제</button></div>
+    </div><div class="sec-f">현장에서 구간을 잘못 골랐거나 이미 있는 구간을 새로 등록했다면, 이 진단을 맞는 구간으로 옮기세요.</div></div>
+    <site-picker v-if="moving" :exclude="d.siteId" :hq="site.hq" @pick="moveTo" @close="moving = false"></site-picker>
     <photo-detail v-if="viewing" :diag-id="d.id" :photo-id="viewing.photo.id" :is-signature="viewing.sig" @close="viewing = null"></photo-detail>
   </div>
   <div class="empty" v-else><div class="big">📄</div>진단 기록을 찾을 수 없습니다.</div>`,
