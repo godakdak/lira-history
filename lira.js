@@ -1,6 +1,9 @@
-// LIRA 측정 폴더 파일(.lira / .anl / .out / .sdt) 읽기
-// 장산도–자라도1 2025-09-22 B상 파일로 검증: .anl의 직렬 인덕턴스 보정을 적용한 위상이
-// LIRA 클립보드 내보내기와 0.1° 이내, 계산한 Signature가 .sdt와 평균 0.00 dB로 일치.
+// LIRA 측정 폴더 파일(.lira / .anl / .out / .sdt / .pbd) 읽기
+// 검증
+//  - 장산도–자라도1 2025-09-22 B상 (LIRA CS 6.2.5, 프로브 보정 OFF): .anl 직렬 인덕턴스 보정 위상이
+//    LIRA 클립보드 내보내기와 0.1° 이내, Signature가 .sdt와 평균 0.00 dB.
+//  - 완주 SW1001 2024-01-23 A·B·C상 (LIRA CS 6.4.1, 프로브 보정 ON): .pbd 프로브 보정을 적용하면
+//    Signature가 .sdt NOT Normalized와 중앙값 0.00~0.04 dB (보정 없이는 −4 dB, 모양도 다름).
 
 import { makeSpectrum } from './signature.js';
 
@@ -71,6 +74,43 @@ export function measNameFromText(t) {
   return m ? m[1].replace(/^[^\w_]+/, '') : null;
 }
 
+/**
+ * .pbd: 프로브 보정 데이터 (LIRA Spectrum → Probe). little-endian
+ *  [f64 프로브 특성임피던스][u16 EnableProbComp][u32 N][N × (f64 주파수, f64 Re H)][u32 N][N × (f64 주파수, f64 Im H)]
+ * H(f)는 프로브(리드선)만 측정한 반사 전달함수. 보정: Γ케이블 = Γ측정 / H, Γ = (Z − Z0)/(Z + Z0)
+ */
+export function parsePbd(buf) {
+  const dv = new DataView(buf);
+  const bad = () => { throw new Error('.pbd 파일 형식을 인식하지 못했습니다.'); };
+  if (buf.byteLength < 64) bad();
+  const z0 = dv.getFloat64(0, true);
+  const enabled = dv.getUint16(8, true) === 1;
+  const n = dv.getUint32(10, true);
+  const p2 = 14 + 16 * n;
+  if (!(z0 > 1 && z0 < 1000) || !(n >= 16 && n < 2e6) || p2 + 4 + 16 * n > buf.byteLength) bad();
+  if (dv.getUint32(p2, true) !== n) bad();
+  const f = new Float64Array(n), re = new Float64Array(n), im = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    f[i] = dv.getFloat64(14 + 16 * i, true);
+    re[i] = dv.getFloat64(14 + 16 * i + 8, true);
+    im[i] = dv.getFloat64(p2 + 4 + 16 * i + 8, true);
+    if ((i > 0 && !(f[i] > f[i - 1])) || !isFinite(re[i]) || !isFinite(im[i])) bad();
+  }
+  return { z0, enabled, n, f, re, im };
+}
+
+/** 프로브 전달함수 H를 주파수 fr에서 (선형 보간) */
+function probeAt(pbd, fr, hint) {
+  const { f, re, im, n } = pbd;
+  if (hint >= 0 && hint < n && Math.abs(f[hint] - fr) < 1e-3 * Math.max(fr, 1)) return [re[hint], im[hint]];
+  if (fr <= f[0]) return [re[0], im[0]];
+  if (fr >= f[n - 1]) return [re[n - 1], im[n - 1]];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (f[m] <= fr) lo = m; else hi = m; }
+  const t = (fr - f[lo]) / (f[hi] - f[lo]);
+  return [re[lo] + t * (re[hi] - re[lo]), im[lo] + t * (im[hi] - im[lo])];
+}
+
 /** .anl 분석 설정에서 필요한 값 */
 export function readAnl(text) {
   const ini = parseIni(text);
@@ -86,7 +126,8 @@ export function readAnl(text) {
     vr: num(an.SegVR0),
     maxFreqMHz: num(dso.MaxFreq),
     residZL_uH: num(mod.ResidZL) || 0,
-    residYC_nF: num(mod.ResidYC) || 0,
+    residYC_pF: num(mod.ResidYC) || 0,   // LIRA 보고서의 'Stray capacitance (pF)'
+    outlierSigma: num(an.Outliers),
     impOffset: num(imp.offset) || 0,
     normSlopePerBin: num(hs.NormParamValue),
     normOffset: num(hs.NormParamOffset),
@@ -150,17 +191,34 @@ export function liraNormalization(sdt, anl) {
 }
 
 /**
- * .lira(+ .anl) → 위상 스펙트럼. LIRA처럼 직렬 인덕턴스(ResidZL, μH)를 빼고
- * 병렬 표유용량(ResidYC, nF)이 있으면 그것도 보정한다.
+ * .lira(+ .anl, .pbd) → 위상 스펙트럼 (LIRA가 Signature 계산에 쓰는 위상).
+ *  1) 프로브 보정(.pbd의 EnableProbComp가 켜져 있을 때): Γc = Γm / H, Z = Z0·(1 + Γc)/(1 − Γc)
+ *  2) 직렬 인덕턴스(ResidZL, μH) 제거, 병렬 표유용량(ResidYC, pF) 제거
  */
-export function spectrumFromLira(lira, anl) {
+export function spectrumFromLira(lira, anl, pbd) {
   const L = (anl?.residZL_uH || 0) * 1e-6;
-  const Cp = (anl?.residYC_nF || 0) * 1e-9;
+  const Cp = (anl?.residYC_pF || 0) * 1e-12;
+  const probe = pbd && pbd.enabled ? pbd : null;
+  const Z0 = probe ? probe.z0 : 50;
   const N = lira.N;
   const ph = new Float64Array(N);
   for (let i = 0; i < N; i++) {
     const w = 2 * Math.PI * lira.f[i];
-    let zr = lira.re[i], zi = lira.im[i] - w * L;
+    let zr = lira.re[i], zi = lira.im[i];
+    if (probe) {
+      // Γm = (Z − Z0)/(Z + Z0)
+      const nr = zr - Z0, ni = zi, dr = zr + Z0, di = zi, dd = dr * dr + di * di;
+      const gr = (nr * dr + ni * di) / dd, gi = (ni * dr - nr * di) / dd;
+      // Γc = Γm / H
+      const [hr, hi] = probeAt(probe, lira.f[i], i);
+      const hh = hr * hr + hi * hi;
+      const cr = (gr * hr + gi * hi) / hh, ci = (gi * hr - gr * hi) / hh;
+      // Z = Z0 (1 + Γc)/(1 − Γc)
+      const ar = 1 + cr, ai = ci, br = 1 - cr, bi = -ci, bb = br * br + bi * bi;
+      zr = Z0 * (ar * br + ai * bi) / bb;
+      zi = Z0 * (ai * br - ar * bi) / bb;
+    }
+    zi -= w * L;
     if (Cp) {
       const d = zr * zr + zi * zi;
       const yr = zr / d, yi = -zi / d - w * Cp;
@@ -188,7 +246,7 @@ export function groupLiraFiles(files) {
   const loose = [];
   for (const f of files) {
     const ext = (f.name.split('.').pop() || '').toLowerCase();
-    if (!['lira', 'anl', 'out', 'sdt'].includes(ext)) { loose.push(f); continue; }
+    if (!['lira', 'anl', 'out', 'sdt', 'pbd'].includes(ext)) { loose.push(f); continue; }
     const m = /(\d{8}-\d{6})/.exec(f.name);
     const key = m ? f.name.slice(0, f.name.indexOf(m[1]) + m[1].length).replace(/^[0-9a-f]{8}-(?=_)/, '') : f.name.replace(/\.[^.]+$/, '');
     if (!groups.has(key)) groups.set(key, { key, files: {} });
