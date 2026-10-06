@@ -1,9 +1,14 @@
 // LIRA 진단이력 — 웹 버전 (Swift Playgrounds 데모와 같은 동작)
 // 데이터는 store.js를 통해 중앙 저장소(Supabase) 또는 이 브라우저(로컬 모드)에 저장된다.
 
-import * as Sig from './signature.js';
-import * as Lira from './lira.js';
-import { createStore } from './store.js';
+import * as Sig from './signature.js?v=0.4';
+import * as Lira from './lira.js?v=0.4';
+import * as Store from './store.js?v=0.4';
+
+const APP_VERSION = '0.4';
+/** 일부 파일만 새로 올렸거나 브라우저가 옛 파일을 쓰고 있으면 알린다 */
+const VERSION_PROBLEM = [['signature.js', Sig.VERSION], ['lira.js', Lira.VERSION], ['store.js', Store.VERSION]]
+  .filter(([, v]) => v !== APP_VERSION).map(([n, v]) => `${n}(${v || '이전 버전'})`).join(', ');
 
 const { createApp, reactive, computed, watch, nextTick, markRaw } = Vue;
 
@@ -51,7 +56,7 @@ const TIMELINE_COLORS = [COLORS.orange, COLORS.blue, COLORS.green, COLORS.purple
 const WATCH_COLOR = '#f5c400', CAUTION_COLOR = '#e8173c';
 
 // 판정 기준 (한국형 잠정기준) — 설정에서 바꾸며 전국 공통으로 저장된다
-const DEFAULT_CRITERIA = { dgWatch: 20, dgCaution: 25, locWatchSD: 2, locCautionSD: 3 };
+const DEFAULT_CRITERIA = { dgWatch: 20, dgCaution: 25, locWatchSD: 2, locCautionSD: 3, jointWatchDB: 6, jointCautionDB: 10 };
 const GRADE = {
   good: { key: 'good', label: '양호', cls: 'green', rank: 0 },
   watch: { key: 'watch', label: '관심', cls: 'yellow', rank: 1 },
@@ -83,6 +88,12 @@ function localGrade(loc) {
   if (!loc || loc.maxK == null || !isFinite(loc.maxK)) return null;
   const c = state.criteria;
   return loc.maxK > c.locCautionSD ? GRADE.caution : loc.maxK > c.locWatchSD ? GRADE.watch : GRADE.good;
+}
+/** 접속지점 판정: 같은 접속개소 다른 상·같은 상 다른 접속개소보다 큰 정도(dB)가 관심·주의 기준 이상 */
+function jointGrade(j) {
+  if (!j || j.dev == null || !isFinite(j.dev)) return null;
+  const c = state.criteria;
+  return j.dev >= c.jointCautionDB ? GRADE.caution : j.dev >= c.jointWatchDB ? GRADE.watch : GRADE.good;
 }
 function worstGrade(list) {
   let w = null;
@@ -122,10 +133,10 @@ function missingItems(d) {
   return m;
 }
 function statusOf(d) { return d.imported ? 'imported' : (missingItems(d).length ? 'needsInput' : 'complete'); }
-/** 진단 1건의 종합 판정: 상별 DeltaG·국부신호 중 가장 나쁜 것 (판정할 값이 없으면 null) */
+/** 진단 1건의 종합 판정: 상별 DeltaG·국부신호·접속지점 중 가장 나쁜 것 (판정할 값이 없으면 null) */
 function diagGrade(d) {
   const g = [];
-  for (const ph of d.phases) { const r = resultOf(d, ph); g.push(dgGrade(r?.deltaG), localGrade(r?.spectrum ? r.local : null)); }
+  for (const ph of d.phases) { const r = resultOf(d, ph); g.push(dgGrade(r?.deltaG), localGrade(r?.spectrum ? r.local : null), jointGrade(r?.spectrum ? r.joint : null)); }
   return worstGrade(g);
 }
 function repPhotoOf(d) { return d.photos.find(p => p.id === d.repPhotoId) || d.photos[0] || null; }
@@ -430,7 +441,7 @@ const A = {
     let old = null;
     await A.updateDiagnosis(diagId, d => { old = A._setSpectrum(d, phase, ref, stage); });
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
-    await A.refreshLocal(diagId, phase, data);
+    await A.refreshDiag(diagId);
     return `${phase}상 ← ${pasted ? '클립보드' + (data.label ? ' (' + data.label + ')' : '') : name}`;
   },
   /** LIRA 측정 파일 묶음(.lira 필수, .anl·.out·.sdt·.pbd 선택) */
@@ -480,7 +491,7 @@ const A = {
     });
     const site = d0 && siteById(d0.siteId);
     if (site && site.lengthM == null && ref.lira.length) await A.updateSite(site.id, s => { s.lengthM = ref.lira.length; });
-    await A.refreshLocal(diagId, phase, sp);
+    await A.refreshDiag(diagId);
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
     const notes = [];
     if (dgSet) notes.push(`DeltaG ${fmtDG(out.deltaG)} 자동 입력`);
@@ -506,34 +517,52 @@ const A = {
   async removeSpectrum(diagId, phase) {
     const d = diagById(diagId); const r = d && resultOf(d, phase); const sp = r?.spectrum;
     if (!sp) return;
-    await A.updateDiagnosis(diagId, dd => { const rr = resultOf(dd, phase); rr.spectrum = null; rr.local = null; });
+    await A.updateDiagnosis(diagId, dd => { const rr = resultOf(dd, phase); rr.spectrum = null; rr.local = null; rr.joint = null; });
     store.removeFiles([sp.fileName, ...(sp.raw || [])]).catch(() => {});
     specCache.delete(sp.fileName);
+    A.refreshDiag(diagId).catch(() => {});   // 남은 상들의 상간 비교 다시
   },
-  /** 국부신호 판정값 저장 (그 사이 스펙트럼이 바뀌었으면 무시, 같은 값이면 저장 생략) */
-  async setLocal(diagId, phase, fileName, loc) {
-    const d = diagById(diagId); const r = d && resultOf(d, phase);
-    if (!r || !r.spectrum || r.spectrum.fileName !== fileName) return;
-    const o = r.local;
-    if (o && o.key === loc.key && o.maxK === loc.maxK && o.atM === loc.atM) return;
-    await A.updateDiagnosis(diagId, dd => { const rr = resultOf(dd, phase); if (rr) rr.local = loc; });
-  },
-  async refreshLocal(diagId, phase, data) {
-    const d = diagById(diagId); const r = d && resultOf(d, phase); const site = d && siteById(d.siteId);
-    if (!r?.spectrum || !site) return;
-    try { await A.setLocal(diagId, phase, r.spectrum.fileName, await computeLocal(site, r.spectrum, data)); }
-    catch (e) { console.warn('국부신호 판정 실패', e); }
-  },
-  /** 구간의 분석 조건(긍장·기준 대역폭·윈도우)이 바뀌면 그 구간 스펙트럼의 판정을 다시 계산 */
-  async refreshLocalForSite(siteId, force = false) {
-    const site = siteById(siteId); if (!site) return;
-    for (const d of historyOf(siteId)) {
-      for (const r of d.results) {
-        if (r.spectrum && (force || !r.local || r.local.key !== localKey(site, r.spectrum))) await A.refreshLocal(d.id, r.phase);
-      }
+  /** 진단 1건의 국부신호·접속지점 판정값을 계산해 저장 (같은 값이면 저장 생략) */
+  async refreshDiag(diagId) {
+    // 계산 중이면 끝나기를 기다린 뒤, 그 사이 조건(접속지점·반전 등)이 바뀌었을 때만 한 번 더 계산
+    while (evalRunning.has(diagId)) {
+      await evalRunning.get(diagId).catch(() => {});
+      const dw = diagById(diagId);
+      if (!dw || !needsEval(dw)) return;
     }
+    const job = (async () => {
+      const d0 = diagById(diagId);
+      if (!d0) return;
+      let out;
+      try { out = await evaluateDiag(d0); } catch (e) { console.warn('판정 계산 실패', e); return; }
+      if (!out) return;
+      const d = diagById(diagId);
+      if (!d) return;
+      const same = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+      const changed = Object.keys(out).some(ph => { const r = resultOf(d, ph); return r && (!same(r.local, out[ph].local) || !same(r.joint, out[ph].joint)); });
+      if (!changed) return;
+      await A.updateDiagnosis(diagId, dd => {
+        for (const ph of Object.keys(out)) { const r = resultOf(dd, ph); if (r && r.spectrum) { r.local = out[ph].local; r.joint = out[ph].joint; } }
+      });
+    })();
+    evalRunning.set(diagId, job);
+    try { await job; } finally { evalRunning.delete(diagId); }
+  },
+  /** 구간의 분석 조건(긍장·기준 대역폭·윈도우·접속지점)이 바뀌면 그 구간 진단의 판정을 다시 계산 */
+  async refreshSite(siteId) {
+    for (const d of historyOf(siteId)) if (needsEval(d)) await A.refreshDiag(d.id);
+  },
+  async setReversed(diagId, phase, on) {
+    await A.updateDiagnosis(diagId, d => { const r = resultOf(d, phase); if (r) r.reversed = !!on; });
+    A.refreshDiag(diagId).catch(() => {});
+  },
+  async setJoints(siteId, list) {
+    const joints = [...list].sort((a, b) => a.d - b.d).map(j => ({ id: j.id || uuid(), d: Math.round(j.d * 10) / 10 }));
+    await A.updateSite(siteId, s => { s.joints = joints; });
+    A.refreshSite(siteId).catch(() => {});
   },
 };
+const evalRunning = new Map();
 
 function askPhase(name) {
   return dialog({
@@ -563,7 +592,7 @@ function exportJSON() {
   download(`LIRA_진단이력_${fmtFileStamp()}.json`, new Blob([JSON.stringify(snap, null, 1)], { type: 'application/json' }));
 }
 function exportCSV() {
-  const lines = ['본부,구간,지중/해저,시점전산화번호,종점전산화번호,진단일,상,DeltaG,DeltaG 판정,국부신호 판정,국부신호 위치(m),스펙트럼,상태,출처'];
+  const lines = ['본부,구간,지중/해저,시점전산화번호,종점전산화번호,진단일,상,DeltaG,DeltaG 판정,국부신호(SD),국부신호 판정,국부신호 위치(m),접속지점 편차(dB),접속지점 판정,접속지점 위치(m),스펙트럼,상태,출처'];
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   for (const d of [...state.diagnoses].sort((a, b) => new Date(a.date) - new Date(b.date))) {
     const s = siteById(d.siteId); if (!s) continue;
@@ -571,7 +600,8 @@ function exportCSV() {
       const r = resultOf(d, ph);
       lines.push([s.hq, s.name, s.kind, s.fromCode, s.toCode, fmtDay(d.date), ph,
         r?.deltaG != null ? Number(r.deltaG).toFixed(2) : '', dgGrade(r?.deltaG)?.label || '',
-        (r?.spectrum && localGrade(r.local)?.label) || '', (r?.spectrum && localGrade(r.local) && r.local.atM != null && localGrade(r.local).key !== 'good') ? r.local.atM : '',
+        r?.spectrum && r.local?.maxK != null ? r.local.maxK : '', (r?.spectrum && localGrade(r.local)?.label) || '', r?.spectrum && r.local?.atM != null ? r.local.atM : '',
+        r?.spectrum && r.joint?.dev != null ? r.joint.dev : '', (r?.spectrum && jointGrade(r.joint)?.label) || '', r?.spectrum && r.joint?.atM != null ? r.joint.atM : '',
         r?.spectrum ? 'Y' : 'N', STATUS[statusOf(d)].label, d.source].map(q).join(','));
     }
   }
@@ -835,6 +865,8 @@ const SignatureChart = {
     curves: Array, hidden: { type: Array, default: () => [] }, xMax: Number, lengthMarker: Number,
     cursor: Number, height: { default: 280 }, interactive: { default: true }, normalized: Boolean,
     levels: { type: Array, default: () => [] },   // 판정 기준선 [{ label, value, color }] (정규화 좌표)
+    joints: { type: Array, default: () => [] },   // 접속지점 위치 (m)
+    jointBand: { type: Number, default: 0 },      // 국부신호에서 빼는 범위 (±m)
   },
   emits: ['update:cursor'],
   mounted() {
@@ -845,7 +877,7 @@ const SignatureChart = {
   beforeUnmount() { this.ro && this.ro.disconnect(); },
   watch: {
     curves() { this.draw(); }, hidden() { this.draw(); }, xMax() { this.draw(); }, cursor() { this.draw(); },
-    normalized() { this.draw(); }, levels() { this.draw(); }, lengthMarker() { this.draw(); },
+    normalized() { this.draw(); }, levels() { this.draw(); }, lengthMarker() { this.draw(); }, joints() { this.draw(); }, jointBand() { this.draw(); },
   },
   computed: { visible() { return (this.curves || []).filter(c => !this.hidden.includes(c.id)); } },
   methods: {
@@ -899,6 +931,19 @@ const SignatureChart = {
         ctx.save(); ctx.setLineDash([4, 3]); ctx.globalAlpha = 0.7; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(px(this.lengthMarker), pr.y); ctx.lineTo(px(this.lengthMarker), pr.y + pr.h); ctx.stroke(); ctx.restore();
         ctx.textAlign = 'right'; ctx.fillText(`종단 ${Math.round(this.lengthMarker)} m`, px(this.lengthMarker) - 3, pr.y + 2);
+      }
+      // 접속지점 (제외 범위 음영 + 점선)
+      if (this.joints.length) {
+        ctx.save(); ctx.beginPath(); ctx.rect(pr.x, pr.y, pr.w, pr.h); ctx.clip();
+        this.joints.forEach((j, k) => {
+          if (j > xMax) return;
+          if (this.jointBand > 0) { ctx.fillStyle = 'rgba(120, 90, 200, 0.08)'; ctx.fillRect(px(j - this.jointBand), pr.y, px(j + this.jointBand) - px(j - this.jointBand), pr.h); }
+          ctx.setLineDash([2, 3]); ctx.strokeStyle = 'rgba(110, 80, 190, 0.8)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(px(j), pr.y); ctx.lineTo(px(j), pr.y + pr.h); ctx.stroke();
+          ctx.setLineDash([]); ctx.fillStyle = 'rgba(110, 80, 190, 0.95)'; ctx.font = '700 9px -apple-system, sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('J' + (k + 1), px(j), pr.y + pr.h - 2);
+        });
+        ctx.restore();
       }
       // 곡선
       ctx.save(); ctx.beginPath(); ctx.rect(pr.x, pr.y, pr.w, pr.h); ctx.clip();
@@ -983,8 +1028,8 @@ const SignatureCompare = {
   props: { siteId: String, focusDiagId: String },
   data: () => ({
     mode: 'timeline', phase: 'A', diagId: null, bandwidthMHz: 20, windowName: '4 Term B-H', vrMode: 'length', manualVR: 0.55,
-    normalize: false, showSD: false, curves: [], hidden: [], reversed: [], cursor: null, savedNotice: false,
-    windows: Sig.WINDOWS, loading: false, err: '',
+    normalize: false, showSD: false, curves: [], hidden: [], cursor: null, savedNotice: false,
+    windows: Sig.WINDOWS, loading: false, err: '', jointInput: '',
   }),
   computed: {
     site() { return siteById(this.siteId); },
@@ -1007,9 +1052,33 @@ const SignatureCompare = {
       return vr * Sig.C / (2 * df) / 4;
     },
     guideline() { return this.length ? Sig.guidelineBandwidthMHz(this.length) : null; },
+    /** 반전(반대편 끝에서 측정) — 진단 기록에 저장되어 판정에도 쓰인다 */
+    reversed() { return this.allSources.filter(s => resultOf(s.diag, s.phase)?.reversed).map(s => s.id); },
+    joints() { return siteJoints(this.site); },
+    jointBand() { const c = this.curves[0]; return c ? JOINT_EXCLUDE * c.resolutionM : 0; },
     key() {
       return JSON.stringify([this.bandwidthMHz, this.windowName, this.vrMode, this.manualVR, this.mode, this.phase, this.diagId,
-        this.sources.map(s => s.ref.fileName), this.reversed, this.normalize, this.length]);
+        this.sources.map(s => s.ref.fileName), this.reversed, this.normalize, this.length, this.joints]);
+    },
+    /** 접속지점 비교표: 행 = 접속개소, 열 = 보이는 곡선. 상간 비교 모드에서는 편차로 판정 색 */
+    jointTable() {
+      const cs = this.visibleCurves.filter(c => c.jl);
+      if (!this.joints.length || !cs.length) return null;
+      const lv = {}; cs.forEach(c => { lv[c.id] = c.jl; });
+      const cmp = this.mode === 'phases' ? jointCompare(lv) : null;
+      return {
+        cols: cs.map(c => ({ id: c.id, label: this.mode === 'phases' ? c.title.split(' ')[0] : fmtDay(c.date).slice(2), color: c.color })),
+        rows: this.joints.map((d, j) => ({
+          j: j + 1, d,
+          cells: cs.map(c => {
+            const p = c.jl[j], it = cmp ? cmp[c.id][j] : null;
+            const g = it && it.dev != null ? jointGrade(it) : null;
+            const sg = v => (v == null ? '–' : (v >= 0 ? '+' : '') + v.toFixed(1));
+            const tip = p && p.floor ? '0 dB 기준선 아래 (접속지점 신호 없음)' : it ? `상간 ${sg(it.dP)} · 개소간 ${sg(it.dJ)} dB` : '';
+            return { id: c.id, txt: !p ? '–' : (p.floor ? '≤' : '') + p.S.toFixed(1), sub: it && it.dev != null ? sg(it.dev) : '', cls: g ? 'jc-' + g.key : p && p.floor ? 'jc-floor' : '', tip };
+          }),
+        })),
+      };
     },
     resText() { const c = this.curves[0]; return c ? `분해능 ${c.resolutionM.toFixed(1)} m · Shadow ${(c.resolutionM * 5 / 3).toFixed(1)} m` : ''; },
     visibleCurves() { return this.curves.filter(c => !this.hidden.includes(c.id)); },
@@ -1067,9 +1136,16 @@ const SignatureCompare = {
           if (!this.vrCache.has(k)) this.vrCache.set(k, Sig.estimateVR(data, bwHz, this.windowName, L));
           const est = this.vrCache.get(k); if (est) vr = est;
         }
+        const rev = this.reversed.includes(src.id);
         const { r, norm, trace } = signatureCurve(data, src.ref, {
-          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: this.reversed.includes(src.id),
+          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: rev,
         });
+        // 접속지점 신호 (감쇠 보정 dB, 화면 좌표 = 구간 시점 기준)
+        let jl = null, nt = null;
+        if (norm && L) {
+          nt = this.normalize ? trace : Sig.displayTrace(r, norm, true, rev, L, xm);
+          if (this.joints.length) jl = this.joints.map(x => jointPeak(nt, norm.zeroDB, x, r.resolutionM));
+        }
         let title, color;
         if (this.mode === 'timeline') {
           title = fmtDay(src.diag.date) + ' ' + src.phase + '상';
@@ -1082,25 +1158,58 @@ const SignatureCompare = {
         const parts = [`VR ${vr.toFixed(3)}`];
         let grade = null;
         if (this.normalize && norm) {
-          const m = localMetric({ r, norm, trace }, L);
+          const m = localMetric({ r, norm, trace }, L, this.joints);
           grade = m ? localGrade(m) : null;
-          if (grade) parts.unshift(`국부신호 ${grade.label}` + (grade.key !== 'good' ? ` (${m.atM} m 부근)` : ''));
+          if (grade) parts.unshift(`국부신호 ${grade.label}` + (grade.key !== 'good' ? ` (${Math.round(m.atM)} m 부근)` : ''));
           parts.push(`감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB`);
           parts.push(`기준선 ${norm.source}`);
         } else if (this.normalize) parts.push('긍장 없음: 정규화 불가');
         parts.push(src.ref.label || src.ref.originalName);
-        out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
+        out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), nt: nt && markRaw(nt), jl, date: src.diag.date, vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
       });
       this.curves = out;
       this.savedNotice = false;
     },
     toggleHidden(id) { this.hidden = this.hidden.includes(id) ? this.hidden.filter(x => x !== id) : [...this.hidden, id]; },
-    toggleRev(id) { this.reversed = this.reversed.includes(id) ? this.reversed.filter(x => x !== id) : [...this.reversed, id]; },
+    toggleRev(id) {
+      const src = this.allSources.find(s => s.id === id); if (!src) return;
+      A.setReversed(src.diag.id, src.phase, !this.reversed.includes(id));
+    },
+    /** 접속지점 추가: 커서 근처(±0.75×분해능)에서 보이는 곡선들의 평균이 가장 큰 곳으로 맞춘다 */
+    addJoint(x) {
+      if (x == null || !isFinite(x) || !this.length) return;
+      if (!(x > 0 && x < this.length)) { toast('접속지점은 0 m와 긍장 사이에 지정하세요.'); return; }
+      const cs = this.visibleCurves.filter(c => c.nt);
+      let best = x;
+      if (cs.length) {
+        const res = cs[0].resolutionM, step = cs[0].nt.step;
+        let bv = -Infinity;
+        for (let t = Math.max(x - JOINT_SEARCH * res, 0); t <= Math.min(x + JOINT_SEARCH * res, this.length); t += step) {
+          let sum = 0, n = 0;
+          for (const c of cs) { const v = Sig.traceValueAt(c.nt, t); if (v != null) { sum += v; n++; } }
+          if (n && sum / n > bv) { bv = sum / n; best = t; }
+        }
+      }
+      const res = this.curves[0]?.resolutionM || 1;
+      if (this.joints.some(j => Math.abs(j - best) < 0.5 * res)) { toast('이미 가까운 곳에 접속지점이 있습니다.'); return; }
+      A.setJoints(this.siteId, [...(this.site.joints || []), { d: best }]);
+      toast(`접속지점을 ${best.toFixed(1)} m에 추가했습니다.`);
+    },
+    addJointInput() {
+      const v = parseFloat(String(this.jointInput).replace(',', '.'));
+      if (!isFinite(v)) { toast('거리를 숫자로 입력하세요.'); return; }
+      this.addJoint(v); this.jointInput = '';
+    },
+    removeJoint(j) {
+      const list = (this.site.joints || []).filter(x => Math.abs(Number(x.d) - j) > 1e-6);
+      A.setJoints(this.siteId, list);
+    },
+    fmtDay,
     readout(c) { const v = Sig.traceValueAt(c.trace, this.cursor); return v == null ? '–' : v.toFixed(1) + ' dB'; },
     async saveStd() {
       await A.updateSite(this.siteId, s => { s.sigBandwidthMHz = this.bandwidthMHz; s.sigWindow = this.windowName; });
       this.savedNotice = true;
-      A.refreshLocalForSite(this.siteId).catch(() => {});   // 기준 대역폭으로 국부신호 판정 다시 계산
+      A.refreshSite(this.siteId).catch(() => {});   // 기준 대역폭으로 판정 다시 계산
     },
   },
   template: `<div>
@@ -1123,7 +1232,7 @@ const SignatureCompare = {
         <option v-for="d in diagsWithData" :key="d.id" :value="d.id">{{ fmtDay(d.date) }}</option>
       </select>
       <div class="chartbox">
-        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="length" v-model:cursor="cursor" :normalized="normalize" :levels="levels"></signature-chart>
+        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="length" v-model:cursor="cursor" :normalized="normalize" :levels="levels" :joints="joints" :joint-band="jointBand"></signature-chart>
       </div>
       <div class="readout" v-if="cursor != null">
         <b class="mono">{{ cursor.toFixed(1) }} m</b>
@@ -1137,7 +1246,7 @@ const SignatureCompare = {
       </div>
       <div class="panel">
         <div class="optrow">
-          <div class="grow"><div class="t">Normalized</div><div class="sub xs">LIRA Norm ON: 감쇠 보정 후 0 dB = 평균 변동 + 1 SD</div></div>
+          <div class="grow"><div class="t">Normalized</div><div class="sub xs">LIRA Norm ON: 감쇠 보정 후 0 dB = 평균 변동 + 1 SD, 0 dB 위 신호만 표시. 끄면 Norm OFF(보정 없는 원 신호).</div></div>
           <label class="toggle"><input type="checkbox" v-model="normalize"><span></span></label>
         </div>
         <div class="optrow" v-if="normalize" style="padding-left:12px">
@@ -1145,6 +1254,27 @@ const SignatureCompare = {
           <label class="toggle"><input type="checkbox" v-model="showSD"><span></span></label>
         </div>
         <div class="sub xs" v-if="!length">긍장 정보가 있어야 감쇠 보정과 정규화를 할 수 있습니다. 구간 정보에 긍장을 입력하세요.</div>
+      </div>
+      <div class="panel" v-if="length">
+        <div class="optrow"><div class="grow"><div class="t">접속지점</div>
+          <div class="sub xs">구간 시점 기준 거리. 지정한 접속지점 신호는 국부신호에서 빼고, 같은 접속개소의 다른 상·같은 상의 다른 접속개소와 비교해 따로 판정합니다.</div></div></div>
+        <div class="btnrow" style="margin:6px 0">
+          <button class="btn small" :disabled="cursor == null" @click="addJoint(cursor)">＋ 커서 위치에 추가{{ cursor != null ? ' (' + cursor.toFixed(0) + ' m)' : '' }}</button>
+          <input class="boxinput mono" style="width:96px" inputmode="decimal" v-model="jointInput" placeholder="거리 m" @keyup.enter="addJointInput">
+          <button class="btn small" @click="addJointInput">추가</button>
+        </div>
+        <div class="sub xs" v-if="!joints.length">그래프를 눌러 커서를 접속지점 신호 위에 두고 '커서 위치에 추가'를 누르세요. 가까운 피크로 자동으로 맞춥니다.</div>
+        <div v-if="jointTable" style="overflow-x:auto">
+          <table class="dg jt">
+            <thead><tr><th>개소</th><th>거리</th><th v-for="c in jointTable.cols" :key="c.id"><span class="dot" :style="{background: c.color}"></span>{{ c.label }}</th><th></th></tr></thead>
+            <tbody><tr v-for="row in jointTable.rows" :key="row.j">
+              <td class="bold">J{{ row.j }}</td><td class="mono">{{ row.d.toFixed(1) }} m</td>
+              <td v-for="cell in row.cells" :key="cell.id" class="mono" :class="cell.cls" :title="cell.tip">{{ cell.txt }}<div v-if="cell.sub" class="dev">{{ cell.sub }}</div></td>
+              <td><button class="linkbtn danger xs" @click="removeJoint(row.d)">삭제</button></td>
+            </tr></tbody>
+          </table>
+          <div class="sub xs" style="margin-top:4px">{{ mode === 'phases' ? '값: 감쇠 보정한 접속지점 신호(dB). 아래 작은 숫자: 편차 = 같은 접속개소 다른 상, 같은 상 다른 접속개소의 중앙값보다 큰 정도 중 큰 값. 색: 편차 판정 (관심 노랑·주의 선홍). ≤: 0 dB 기준선 아래(신호 없음, 판정 안 함).' : '값: 감쇠 보정한 접속지점 신호(dB). 날짜별 변화를 비교하세요. 편차·판정은 상간 비교 화면에서 보입니다. ≤: 0 dB 기준선 아래(신호 없음).' }}</div>
+        </div>
       </div>
       <div class="panel">
         <div class="optrow"><div class="grow">윈도우</div><select class="boxinput" style="width:auto" v-model="windowName"><option v-for="w in windows" :key="w">{{ w }}</option></select></div>
@@ -1166,7 +1296,7 @@ const SignatureCompare = {
           <div class="grow"><div class="bold small">{{ c.title }}</div><div class="sub xs" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.detail }}</div></div>
           <button v-if="length" class="rbtn" :class="{on: reversed.includes(c.id)}" @click="toggleRev(c.id)">반전</button>
         </div>
-        <div class="sub xs" style="margin-top:6px">반전: 반대편 끝에서 측정한 데이터를 같은 거리축으로 맞춥니다. 측정단을 확인하세요.</div>
+        <div class="sub xs" style="margin-top:6px">반전: 반대편 끝(종점 쪽)에서 측정한 데이터를 구간 시점 기준 거리축으로 맞춥니다. 진단 기록에 저장되어 접속지점·국부신호 판정에도 쓰입니다.</div>
       </div>
     </template>
   </div>`,
@@ -1199,42 +1329,134 @@ function analysisFor(site, ref, data) {
   const xMax = L ? L * 1.05 : vr * Sig.C / (2 * data.df) / 4;
   return { bwHz, windowName, vr, length: L, xMax };
 }
-function localKey(site, ref) { return [ref.fileName, site.sigBandwidthMHz || '', site.sigWindow || '', site.lengthM || ''].join('|'); }
+// ---------------------------------------------------------------------------
+// 판정 계산: 국부신호(접속지점 제외) · 접속지점(상간·개소간 비교)
+
+const EVAL_VERSION = 'e3';
+const JOINT_EXCLUDE = 1.5;   // 접속지점 앞뒤 ±1.5×분해능은 국부신호에서 제외
+const JOINT_SEARCH = 0.75;   // 접속지점 신호 = ±0.75×분해능 안의 최댓값
+const round1 = v => (v == null || !isFinite(v) ? null : Math.round(v * 10) / 10);
+function medianOf(a) { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+
+/** 구간의 접속지점 (구간 시점 기준 거리, m) */
+function siteJoints(site) { return (site?.joints || []).map(j => Number(j.d)).filter(x => isFinite(x)).sort((a, b) => a - b); }
+
+/** 판정값 계산 조건 — 바뀌면 다시 계산 */
+function evalKey(site, d) {
+  const parts = [EVAL_VERSION, site.sigBandwidthMHz || '', site.sigWindow || '', site.lengthM || '', siteJoints(site).map(x => x.toFixed(1)).join(',')];
+  for (const ph of d.phases) { const r = resultOf(d, ph); if (r?.spectrum) parts.push(ph + ':' + r.spectrum.fileName + (r.reversed ? ':R' : '')); }
+  return parts.join('|');
+}
+function needsEval(d) {
+  const site = siteById(d.siteId);
+  if (!site) return false;
+  const key = evalKey(site, d);
+  return d.phases.some(ph => { const r = resultOf(d, ph); return r?.spectrum && (!r.local || r.local.key !== key || !r.joint || r.joint.key !== key); });
+}
 
 /**
- * 국부신호 지표: 근단·종단(각 2×분해능)을 뺀 케이블 구간에서 감쇠 보정 신호가 평균 변동보다
- * 몇 SD 높은지의 최댓값(maxK)과 위치. 판정(관심·주의)은 설정의 SD 기준과 비교해 정한다.
+ * 국부신호 지표: 근단·종단(각 2×분해능)과 접속지점(±1.5×분해능)을 뺀 구간에서
+ * 감쇠 보정 신호가 평균 변동보다 몇 SD 높은지의 최댓값(maxK)과 위치(곡선 좌표).
  */
-function localMetric(c, L) {
+function localMetric(c, L, exclude = []) {
   const { r, norm, trace } = c;
   if (!norm || !(L > 0) || !(trace.sd > 0)) return null;
-  const a = 2 * r.resolutionM, b = L - 2 * r.resolutionM;
+  const res = r.resolutionM, a = 2 * res, b = L - 2 * res, ex = JOINT_EXCLUDE * res;
   if (b - a < 0.2 * L) return null;
   let maxK = -Infinity, at = null;
   for (let x = a; x <= b; x += trace.step) {
+    if (exclude.some(j => Math.abs(x - j) <= ex)) continue;
     const v = Sig.traceValueAt(trace, x);
     if (v == null) continue;
     const k = v / trace.sd + (trace.sigma ?? 1);
     if (k > maxK) { maxK = k; at = x; }
   }
-  return isFinite(maxK) ? { maxK: Math.round(maxK * 100) / 100, atM: Math.round(at) } : null;
+  return isFinite(maxK) ? { maxK: Math.round(maxK * 100) / 100, atM: at } : null;
 }
-async function computeLocal(site, ref, data) {
-  const key = localKey(site, ref);
-  if (!site.lengthM) return { key, maxK: null, reason: '긍장 없음' };
-  data = data || await loadSpectrum(ref.fileName);
-  const an = analysisFor(site, ref, data);
-  const c = signatureCurve(data, ref, { ...an, normalize: true, reversed: false });
-  const m = localMetric(c, an.length);
-  return { key, maxK: m ? m.maxK : null, atM: m ? m.atM : null, src: c.norm?.source || '', bwMHz: Math.round(an.bwHz / 1e4) / 100, at: nowISO() };
+
+/**
+ * 접속지점 신호 크기: ±0.75×분해능 안에서 정규화 곡선의 최댓값 + 0 dB 기준선 = 감쇠 보정 신호(dB).
+ * 0 dB 기준선(잡음 수준) 아래면 기준선 값으로 보고 floor 표시 → 비교 기준으로만 쓰고 판정하지 않는다.
+ */
+function jointPeak(trace, zero, x, res) {
+  let best = null;
+  for (let t = Math.max(x - JOINT_SEARCH * res, 0); t <= x + JOINT_SEARCH * res; t += trace.step) {
+    const v = Sig.traceValueAt(trace, t);
+    if (v != null && (best == null || v > best)) best = v;
+  }
+  return best == null ? null : { S: Math.max(best, 0) + zero, floor: best < 0 };
+}
+
+/**
+ * 접속지점 비교. levels = { 상(또는 곡선): [접속개소별 {S, floor}] }
+ *  상간 편차 dP = 같은 접속개소 다른 상들의 중앙값 대비
+ *  개소간 편차 dJ = 같은 상 다른 접속개소들의 중앙값 대비
+ *  편차 dev = 둘 중 큰 값 (비교 대상이 없거나 신호가 기준선 아래면 null)
+ */
+function jointCompare(levels) {
+  const keys = Object.keys(levels), out = {};
+  const S = p => p ? p.S : null;
+  for (const p of keys) {
+    out[p] = levels[p].map((it, j) => {
+      if (!it) return null;
+      const op = keys.filter(q => q !== p).map(q => S(levels[q][j])).filter(v => v != null);
+      const oj = levels[p].filter((v, k) => k !== j && v).map(S);
+      const dP = op.length ? it.S - medianOf(op) : null;
+      const dJ = oj.length ? it.S - medianOf(oj) : null;
+      const dev = it.floor || (dP == null && dJ == null) ? null : Math.max(dP ?? -Infinity, dJ ?? -Infinity);
+      return { S: it.S, floor: it.floor, dP, dJ, dev };
+    });
+  }
+  return out;
+}
+
+/** 진단 1건의 상별 판정값 (국부신호, 접속지점) */
+async function evaluateDiag(d) {
+  const site = siteById(d.siteId);
+  if (!site) return null;
+  const key = evalKey(site, d), joints = siteJoints(site), L = site.lengthM || null;
+  const out = {}, levels = {};
+  for (const ph of d.phases) {
+    const r = resultOf(d, ph);
+    if (!r?.spectrum) continue;
+    if (!L) { out[ph] = { local: { key, maxK: null, reason: '긍장 없음' }, joint: { key, dev: null, reason: '긍장 없음' } }; continue; }
+    const data = await loadSpectrum(r.spectrum.fileName);
+    const an = analysisFor(site, r.spectrum, data);
+    const c = signatureCurve(data, r.spectrum, { ...an, normalize: true, reversed: false });
+    const rev = !!r.reversed, conv = x => (rev ? L - x : x);   // 구간 좌표 ↔ 측정 좌표
+    const own = joints.map(conv);
+    const m = localMetric(c, L, own);
+    out[ph] = { local: { key, maxK: m ? m.maxK : null, atM: m ? Math.round(conv(m.atM)) : null, src: c.norm?.source || '', bwMHz: Math.round(an.bwHz / 1e4) / 100 } };
+    if (!m) out[ph].local.reason = c.norm ? '케이블이 짧거나 신호 없음' : '정규화 불가';
+    if (c.norm && joints.length) levels[ph] = own.map(x => jointPeak(c.trace, c.norm.zeroDB, x, c.r.resolutionM));
+  }
+  const cmp = jointCompare(levels);
+  for (const ph of Object.keys(out)) {
+    if (out[ph].joint) continue;
+    if (!joints.length) { out[ph].joint = { key, dev: null, reason: '접속지점 미지정' }; continue; }
+    const items = cmp[ph] || [];
+    let best = null, bj = -1;
+    items.forEach((it, j) => { if (it && it.dev != null && (!best || it.dev > best.dev)) { best = it; bj = j; } });
+    const lv = (levels[ph] || []).map(p => (p ? round1(p.S) : null));
+    if (best) out[ph].joint = { key, dev: round1(best.dev), dP: round1(best.dP), dJ: round1(best.dJ), j: bj + 1, atM: Math.round(joints[bj]), n: joints.length, levels: lv };
+    else {
+      const reason = !levels[ph] ? '정규화 불가'
+        : items.some(it => it && !it.floor) ? '비교 대상 없음 (상 또는 접속개소가 1개)' : '신호 없음 (모두 0 dB 기준선 아래)';
+      out[ph].joint = { key, dev: null, reason, n: joints.length, levels: lv };
+    }
+  }
+  return out;
 }
 
 // 진단 상세 화면용 미리보기
 const SignaturePreview = {
   components: { SignatureChart },
-  props: { refObj: Object, site: Object, phase: String, diagId: String, local: Object },
-  data: () => ({ curves: [], xMax: 100, caption: '', cursor: null, normalized: false }),
-  computed: { key() { return [this.refObj.fileName, this.site.sigBandwidthMHz, this.site.sigWindow, this.site.lengthM].join('|'); } },
+  props: { refObj: Object, site: Object, phase: String, reversed: Boolean },
+  data: () => ({ curves: [], xMax: 100, caption: '', cursor: null, normalized: false, band: 0 }),
+  computed: {
+    key() { return [this.refObj.fileName, this.site.sigBandwidthMHz, this.site.sigWindow, this.site.lengthM, this.reversed].join('|'); },
+    joints() { return siteJoints(this.site); },
+  },
   watch: { key: { immediate: true, handler() { this.build(); } } },
   methods: {
     async build() {
@@ -1242,24 +1464,17 @@ const SignaturePreview = {
       try { data = await loadSpectrum(this.refObj.fileName); } catch (e) { this.caption = '스펙트럼을 읽지 못했습니다: ' + e.message; return; }
       const an = analysisFor(this.site, this.refObj, data);
       const { bwHz: bw, windowName: win, vr, length: L, xMax: xm } = an;
-      const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: false });
+      const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: !!(this.reversed && L) });
       const { r, norm, trace } = c;
       this.xMax = xm;
-      // 국부신호 판정값이 없거나 분석 조건이 바뀌었으면 다시 저장
-      const key = localKey(this.site, this.refObj);
-      if (this.diagId && (!this.local || this.local.key !== key)) {
-        const m = L ? localMetric(c, L) : null;
-        const loc = { key, maxK: m ? m.maxK : null, atM: m ? m.atM : null, src: norm?.source || '', bwMHz: Math.round(bw / 1e4) / 100, at: nowISO() };
-        if (!L) loc.reason = '긍장 없음';
-        A.setLocal(this.diagId, this.phase, this.refObj.fileName, loc);
-      }
+      this.band = JOINT_EXCLUDE * r.resolutionM;
       this.normalized = !!(L && norm);
       this.caption = `대역폭 ${(bw / 1e6).toFixed(2)} MHz · ${win} · VR ${vr.toFixed(3)} · 분해능 ${r.resolutionM.toFixed(1)} m · ` +
-        (this.normalized ? `Normalized (기준선 ${norm.source})` : 'Normalized OFF (긍장 없음)');
+        (this.normalized ? `Normalized (기준선 ${norm.source})` : 'Normalized OFF (긍장 없음)') + (this.reversed ? ' · 반전' : '');
       this.curves = [markRaw({ id: this.phase, title: this.phase + '상', color: PHASE_COLOR[this.phase] || COLORS.gray, trace: markRaw(trace) })];
     },
   },
-  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="site.lengthM" :cursor="null" :height="170" :interactive="false" :normalized="normalized"></signature-chart></div>
+  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="site.lengthM" :cursor="null" :height="170" :interactive="false" :normalized="normalized" :joints="joints" :joint-band="band"></signature-chart></div>
     <div class="sub xs mono" style="margin-top:4px">{{ caption }}</div></div>`,
 };
 
@@ -1496,7 +1711,7 @@ const SiteEditor = {
           s.size = f.size.trim(); s.mfg = f.mfg.trim(); s.maker = f.maker.trim(); s.lengthM = this.lengthVal;
         });
         toast('구간 정보를 저장했습니다.');
-        A.refreshLocalForSite(this.site.id).catch(() => {});   // 긍장이 바뀌면 국부신호 판정 다시 계산
+        A.refreshSite(this.site.id).catch(() => {});   // 긍장이 바뀌면 판정 다시 계산
         this.$emit('close');
       } catch (e) { reportError(e); } finally { this.saving = false; }
     },
@@ -1841,12 +2056,17 @@ const DiagView = {
     afterCreate() { return state.route.query.new === '1'; },
     st() { return statusOf(this.d); },
     total() { return diagGrade(this.d); },
+    evalNeeded() { return this.d ? needsEval(this.d) : false; },
     missing() { return missingItems(this.d); },
     rep() { return repPhotoOf(this.d); },
     comments() { return [...this.d.comments].sort((a, b) => new Date(a.at) - new Date(b.at)); },
     operator() { return state.operator; },
   },
-  watch: { afterCreate: { immediate: true, handler(v) { state.headerOverride = v ? { back: false, left: null, right: { label: '완료', strong: true, action: () => back() } } : null; } } },
+  watch: {
+    afterCreate: { immediate: true, handler(v) { state.headerOverride = v ? { back: false, left: null, right: { label: '완료', strong: true, action: () => back() } } : null; } },
+    // 판정값이 없거나 계산 조건(접속지점·긍장·기준 대역폭·반전)이 바뀌었으면 다시 계산
+    evalNeeded: { immediate: true, handler(v) { if (v) A.refreshDiag(this.id).catch(() => {}); } },
+  },
   mounted() { if (this.d) this.commentStage = defaultStage(this.d); document.addEventListener('paste', this.onPaste); },
   beforeUnmount() { state.headerOverride = null; document.removeEventListener('paste', this.onPaste); },
   methods: {
@@ -1859,6 +2079,12 @@ const DiagView = {
     r(ph) { return resultOf(this.d, ph); },
     grade(ph) { return dgGrade(deltaGOf(this.d, ph)); },
     lgrade(ph) { const r = this.r(ph); return r && r.spectrum ? localGrade(r.local) : null; },
+    jgrade(ph) { const r = this.r(ph); return r && r.spectrum ? jointGrade(r.joint) : null; },
+    evalText(v) {
+      if (!v) return '계산 중…';
+      if (v.reason && v.reason.startsWith('신호 없음')) return v.reason;
+      return '판정 불가' + (v.reason ? ' (' + v.reason + ')' : '');
+    },
     setDG(ph, v) {
       const x = parseFloat(String(v).replace(',', '.'));
       this.upd(d => {
@@ -2038,13 +2264,23 @@ const DiagView = {
         <input class="input mono" inputmode="decimal" :value="r(ph) && r(ph).deltaG != null ? r(ph).deltaG : ''" placeholder="값 입력" @change="setDG(ph, $event.target.value)">
         <span v-if="grade(ph)" class="chip" :class="grade(ph).cls">{{ grade(ph).label }}</span>
       </div>
-      <div class="field" v-if="r(ph) && r(ph).spectrum"><label>국부신호</label><span class="grow"></span>
-        <template v-if="lgrade(ph)">
-          <span class="xs sub" v-if="lgrade(ph).key !== 'good' && r(ph).local.atM != null">{{ r(ph).local.atM }} m 부근</span>
-          <span class="chip" :class="lgrade(ph).cls">{{ lgrade(ph).label }}</span>
-        </template>
-        <span v-else class="xs sub">{{ r(ph).local ? '판정 불가' + (r(ph).local.reason ? ' (' + r(ph).local.reason + ')' : '') : '계산 중…' }}</span>
-      </div>
+      <template v-if="r(ph) && r(ph).spectrum">
+        <div class="field"><label>국부신호<div class="xs sub" style="font-weight:400">접속지점 제외</div></label><span class="grow"></span>
+          <template v-if="lgrade(ph)">
+            <span class="mono small">{{ r(ph).local.maxK.toFixed(1) }} SD<span class="sub" v-if="r(ph).local.atM != null"> · {{ r(ph).local.atM }} m</span></span>
+            <span class="chip" :class="lgrade(ph).cls">{{ lgrade(ph).label }}</span>
+          </template>
+          <span v-else class="xs sub">{{ evalText(r(ph).local) }}</span>
+        </div>
+        <div class="field"><label>접속지점<div class="xs sub" style="font-weight:400">상간·개소간 비교</div></label><span class="grow"></span>
+          <template v-if="jgrade(ph)">
+            <span class="mono small">{{ r(ph).joint.dev >= 0 ? '+' : '' }}{{ r(ph).joint.dev.toFixed(1) }} dB<span class="sub"> · J{{ r(ph).joint.j }} {{ r(ph).joint.atM }} m</span></span>
+            <span class="chip" :class="jgrade(ph).cls">{{ jgrade(ph).label }}</span>
+          </template>
+          <span v-else-if="r(ph).joint && r(ph).joint.reason === '접속지점 미지정'" class="xs sub">지정 안 됨 · <a class="linkbtn xs" @click="go('/compare/' + d.siteId + '?focus=' + d.id)">뷰어에서 지정 ›</a></span>
+          <span v-else class="xs sub">{{ evalText(r(ph).joint) }}</span>
+        </div>
+      </template>
       <div class="row xs mono" v-if="prevText(ph)" :style="{color: prevText(ph).warn ? 'var(--orange)' : 'var(--sub)'}">{{ prevText(ph).text }}</div>
       <template v-if="r(ph) && r(ph).spectrum">
         <div class="row" style="display:block">
@@ -2053,7 +2289,7 @@ const DiagView = {
             <span class="btnrow" style="flex:none;flex-wrap:nowrap"><button class="btn small" @click="pickFiles(ph)">교체</button><button class="btn small" @click="pasteSpectrum(ph)" title="클립보드 붙여넣기">📋</button><button class="btn small danger" @click="removeSpec(ph)">삭제</button></span>
           </div>
           <div class="xs sub mono" style="margin:2px 0 6px">{{ refSummary(r(ph).spectrum) }}{{ r(ph).spectrum.label ? ' · ' + r(ph).spectrum.label : '' }}{{ r(ph).spectrum.lira ? ' · LIRA 파일' : '' }}</div>
-          <signature-preview :ref-obj="r(ph).spectrum" :site="site" :phase="ph" :diag-id="d.id" :local="r(ph).local"></signature-preview>
+          <signature-preview :ref-obj="r(ph).spectrum" :site="site" :phase="ph" :reversed="!!r(ph).reversed"></signature-preview>
           <div style="margin-top:6px"><button class="linkbtn small" @click="go('/compare/' + d.siteId + '?focus=' + d.id)">🎚 Signature 뷰어에서 대역폭 조절·비교 ›</button></div>
         </div>
       </template>
@@ -2062,7 +2298,6 @@ const DiagView = {
         <button class="btn" @click="pasteSpectrum(ph)">📋 붙여넣기</button>
       </div>
       <photo-grid v-if="r(ph) && r(ph).signatures.length" :photos="r(ph).signatures" big @open="viewing = {photo: $event, sig: true}"></photo-grid>
-      <div class="row"><photo-add library-title="화면 사진" camera-title="화면 촬영" :max="4" @add="addSigs(ph, $event)"></photo-add></div>
       <div class="row xs sub" v-if="r(ph) && r(ph).stage && r(ph).updatedAt">최근 입력: {{ r(ph).stage }} · {{ fmtDayTime(r(ph).updatedAt) }}</div>
     </div></div>
 
@@ -2201,18 +2436,20 @@ const SettingsView = {
     'state.criteria'(v, old) { if (Object.keys(DEFAULT_CRITERIA).every(k => Number(this.f[k]) === old[k])) this.f = { ...v }; },
   },
   computed: {
-    critNums() { const o = {}; for (const k of Object.keys(DEFAULT_CRITERIA)) o[k] = Number(String(this.f[k]).replace(',', '.')); return o; },
+    critNums() { const o = {}; for (const k of Object.keys(DEFAULT_CRITERIA)) { const t = String(this.f[k] ?? '').trim().replace(',', '.'); o[k] = t === '' ? NaN : Number(t); } return o; },
     critValid() {
       const c = this.critNums;
       if (Object.values(c).some(v => !isFinite(v) || v < 0)) return '숫자를 입력하세요.';
       if (!(c.dgWatch < c.dgCaution)) return 'DeltaG: 관심 기준이 주의 기준보다 작아야 합니다.';
       if (!(c.locWatchSD < c.locCautionSD)) return '국부신호: 관심 기준이 주의 기준보다 작아야 합니다.';
+      if (!(c.jointWatchDB < c.jointCautionDB)) return '접속지점: 관심 기준이 주의 기준보다 작아야 합니다.';
       return '';
     },
     critDirty() { return Object.keys(DEFAULT_CRITERIA).some(k => this.critNums[k] !== state.criteria[k]); },
     critMeta() { const m = state.criteriaMeta; return m && m.updatedAt ? `마지막 변경 ${fmtDayTime(m.updatedAt)}${m.updatedBy ? ' · ' + m.updatedBy : ''}` : '기본값 사용 중'; },
     critMissing() { return state.mode === 'supabase' && state.criteriaMissing; },
     spectraCount() { return state.diagnoses.reduce((n, d) => n + d.results.filter(r => r.spectrum).length, 0); },
+    appVersion: () => APP_VERSION,
     operator: { get() { return state.operator; }, set(v) { state.operator = v; ls.set('operatorName', v); } },
     counts() {
       const photos = state.diagnoses.reduce((n, d) => n + d.photos.length + d.results.reduce((m, r) => m + r.signatures.length, 0), 0);
@@ -2238,13 +2475,12 @@ const SettingsView = {
     critDefaults() { this.f = { ...DEFAULT_CRITERIA }; },
     critRevert() { this.f = { ...state.criteria }; },
     async recalcLocal() {
-      const jobs = [];
-      for (const d of state.diagnoses) for (const r of d.results) if (r.spectrum) jobs.push([d.id, r.phase]);
+      const jobs = state.diagnoses.filter(d => d.results.some(r => r.spectrum)).map(d => d.id);
       if (!jobs.length) { toast('스펙트럼이 있는 진단이 없습니다.'); return; }
       try {
-        for (let i = 0; i < jobs.length; i++) { state.busy = `국부신호 판정 계산 중 (${i + 1}/${jobs.length})`; await A.refreshLocal(...jobs[i]); }
+        for (let i = 0; i < jobs.length; i++) { state.busy = `판정 계산 중 (${i + 1}/${jobs.length})`; await A.refreshDiag(jobs[i]); }
       } finally { state.busy = ''; }
-      toast(`스펙트럼 ${jobs.length}개의 국부신호 판정을 다시 계산했습니다.`);
+      toast(`진단 ${jobs.length}건의 국부신호·접속지점 판정을 다시 계산했습니다.`);
     },
     async refresh() { await withBusy('새로 불러오는 중', () => reloadAll(true)); toast('최신 데이터로 갱신했습니다.'); },
     async reset() {
@@ -2293,9 +2529,14 @@ const SettingsView = {
       <div class="row bold small">국부신호 <span class="sub xs" style="font-weight:400">(Normalized Signature, 평균 변동 대비)</span></div>
       <div class="field"><label><span class="chip yellow">관심</span></label><input class="input mono crit" inputmode="decimal" v-model="f.locWatchSD"><span class="sub unit">SD 초과</span></div>
       <div class="field"><label><span class="chip rose">주의</span></label><input class="input mono crit" inputmode="decimal" v-model="f.locCautionSD"><span class="sub unit">SD 초과</span></div>
+      <div class="row xs sub">접속지점으로 지정한 위치(±1.5×분해능)는 국부신호 판정에서 뺍니다.</div>
+      <div class="row bold small">접속지점 <span class="sub xs" style="font-weight:400">(Signature 뷰어에서 지정)</span></div>
+      <div class="field"><label><span class="chip yellow">관심</span></label><input class="input mono crit" inputmode="decimal" v-model="f.jointWatchDB"><span class="sub unit">dB 이상</span></div>
+      <div class="field"><label><span class="chip rose">주의</span></label><input class="input mono crit" inputmode="decimal" v-model="f.jointCautionDB"><span class="sub unit">dB 이상</span></div>
+      <div class="row xs sub" style="display:block">접속지점 신호(감쇠 보정 후 반사 크기)를 ① 같은 접속개소의 다른 상 ② 같은 상의 다른 접속개소와 비교해, 각 중앙값보다 큰 정도 중 큰 값으로 판정합니다. +6 dB = 반사 크기 2배, +10 dB ≈ 3배. 0 dB 기준선 아래(신호 없음)는 판정하지 않습니다.</div>
       <div class="row xs" v-if="critValid" style="color:var(--red)">{{ critValid }}</div>
       <div class="row btnrow">
-        <button class="btn small" @click="critDefaults">기본값 (20·25 / 2·3)</button>
+        <button class="btn small" @click="critDefaults">기본값</button>
         <button class="btn small" v-if="critDirty" @click="critRevert">되돌리기</button>
         <span class="grow"></span>
         <button class="btn prim small" :disabled="!!critValid || !critDirty || savingCrit" @click="saveCrit">저장</button>
@@ -2303,12 +2544,12 @@ const SettingsView = {
       <div class="row xs sub">{{ critMeta }}</div>
     </div><div class="sec-f">시범진단 기간의 잠정 기준입니다. 저장하면 모든 사용자의 지도 색, 진단 판정, Signature 뷰어의 관심·주의 기준선에 바로 적용됩니다. 기준이 확정되면 고정할 예정입니다.</div></div>
     <div class="sec"><div class="card">
-      <div class="row"><button class="linkbtn" @click="recalcLocal">↻ 국부신호 판정 다시 계산 ({{ spectraCount }}개 스펙트럼)</button></div>
-    </div><div class="sec-f">국부신호 판정은 스펙트럼을 올릴 때와 진단 화면을 열 때 자동으로 계산됩니다. 이전에 올린 스펙트럼의 판정이 비어 있으면 눌러 주세요 (SD 기준만 바꿨다면 다시 계산할 필요 없음).</div></div>
+      <div class="row"><button class="linkbtn" @click="recalcLocal">↻ 국부신호·접속지점 판정 다시 계산 ({{ spectraCount }}개 스펙트럼)</button></div>
+    </div><div class="sec-f">판정값은 스펙트럼을 올릴 때, 접속지점·긍장·기준 대역폭을 바꿀 때, 진단 화면을 열 때 자동으로 계산됩니다. 이전에 올린 자료의 판정이 비어 있으면 눌러 주세요 (위 기준값만 바꿨다면 다시 계산할 필요 없음).</div></div>
     <div class="sec"><div class="card"><div class="row"><button class="linkbtn danger" @click="reset">예시 데이터로 초기화</button></div></div>
       <div class="sec-f">{{ mode === 'supabase' ? '중앙 저장소의 모든 입력 데이터가 삭제되고 이관 자료만 남습니다. 시연 준비용입니다.' : '입력한 모든 진단과 사진이 삭제되고 이관 자료만 남습니다.' }}</div></div>
     <div class="sec"><div class="sec-h">앱 정보</div><div class="card">
-      <div class="kv"><span class="k">버전</span><span class="v">0.3 (웹 데모)</span></div>
+      <div class="kv"><span class="k">버전</span><span class="v">{{ appVersion }} (웹 데모)</span></div>
       <div class="kv"><span class="k">제작</span><span class="v">(주)액트투</span></div>
     </div></div>
   </div>`,
@@ -2326,7 +2567,7 @@ const TAB_ICONS = {
 
 const Root = {
   components: { MapView, SitesView, SiteView, NewView, DiagView, CompareView, PendingView, SettingsView },
-  data: () => ({ tabs: [['map', '지도'], ['sites', '진단이력'], ['pending', '추가 입력'], ['settings', '설정']], icons: TAB_ICONS }),
+  data: () => ({ tabs: [['map', '지도'], ['sites', '진단이력'], ['pending', '추가 입력'], ['settings', '설정']], icons: TAB_ICONS, versionProblem: VERSION_PROBLEM }),
   computed: {
     s() { return state; },
     r() { return state.route; },
@@ -2377,6 +2618,7 @@ const Root = {
       <div class="title">{{ header.title }}</div>
       <div class="side right"><button class="tbtn" :class="{strong: header.right.strong}" v-if="header.right" :disabled="header.right.disabled" @click="header.right.action()">{{ header.right.label }}</button></div>
     </header>
+    <div class="banner err" v-if="versionProblem">⚠ 파일 버전이 맞지 않습니다: {{ versionProblem }}. 모든 파일을 GitHub에 새로 올리고 Ctrl+F5(아이폰은 새로 고침)로 다시 여세요.</div>
     <div class="banner" v-if="s.mode === 'local'">로컬 모드 · 이 브라우저에만 저장됩니다</div>
     <main class="content">
       <map-view v-show="r.parts[0] === 'map'"></map-view>
@@ -2416,7 +2658,7 @@ async function init() {
   syncRoute();
   try {
     if (!window.Vue || !window.L) throw new Error('라이브러리(Vue·Leaflet)를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
-    store = await createStore(window.LIRA_CONFIG);
+    store = await Store.createStore(window.LIRA_CONFIG);
     state.mode = store.mode; state.modeLabel = store.label;
     let data = await store.loadAll();
     if (!data.sites.length) {
