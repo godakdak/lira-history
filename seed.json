@@ -1,0 +1,2359 @@
+{
+ "version": 1,
+ "sites": [
+  {
+   "id": "947bc593-a81b-5866-83c7-f50fbb1eb9cb",
+   "name": "수산 6 # 4 ~ 수산 5 # 1",
+   "hq": "부산울산",
+   "office": "중부산 · 부산S/S 수산 D/L",
+   "fromName": "수산 6 # 4",
+   "fromCode": "0188E351",
+   "toName": "수산 5 # 1",
+   "toCode": "0188E473",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "대한전선㈜",
+   "mfg": "1995",
+   "lengthM": 97.0,
+   "location": {
+    "lat": 35.090847,
+    "lon": 129.02475
+   },
+   "endLocation": null,
+   "locSource": "photoGPS",
+   "note": "현장 명판 전산화번호 0188E372(P.S 44-D-A) ↔ 관리양식 시점 전산화번호 0188E351 불일치 — 확인 필요",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "cd9c583b-7cba-5dbc-8f56-53a15b2e4789",
+   "name": "수산 9 # 1 ~ 수산 8 # 4",
+   "hq": "부산울산",
+   "office": "중부산 · 부산S/S 수산 D/L",
+   "fromName": "수산 9 # 1",
+   "fromCode": "0188G462",
+   "toName": "수산 8 # 4",
+   "toCode": "0188G571",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "대한전선㈜",
+   "mfg": "1995",
+   "lengthM": 55.0,
+   "location": {
+    "lat": 35.086231,
+    "lon": 129.025436
+   },
+   "endLocation": null,
+   "locSource": "photoGPS",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "22d4d506-67ad-510c-b7d9-08401adc9cbb",
+   "name": "신백 5 # 1 ~ 신백 4 # 3",
+   "hq": "부산울산",
+   "office": "남부산 · 좌동S/S 신백 D/L",
+   "fromName": "신백 5 # 1",
+   "fromCode": "0893H161",
+   "toName": "신백 4 # 3",
+   "toCode": "0893G642",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "JS전선㈜",
+   "mfg": "1995",
+   "lengthM": 358.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "c8d9f416-f94e-58e2-8baa-47a41b744e4e",
+   "name": "연안 8 # 4 ~ 대청 19 # 4",
+   "hq": "부산울산",
+   "office": "중부산 · 부산S/S 중부 D/L",
+   "fromName": "연안 8 # 4",
+   "fromCode": "0290R961",
+   "toName": "대청 19 # 4",
+   "toCode": "0290R702",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "대한전선㈜",
+   "mfg": "1996",
+   "lengthM": 266.0,
+   "location": {
+    "lat": 35.103,
+    "lon": 129.0305
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "26faaed0-9fec-582b-92a7-6b4f0025a5d2",
+   "name": "동래 10S # 4 ~ 동래 11S # 4",
+   "hq": "부산울산",
+   "office": "동래 · 동래S/S 내성 D/L",
+   "fromName": "동래 10S # 4",
+   "fromCode": "0495R751",
+   "toName": "동래 11S # 4",
+   "toCode": "0495R841",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "1995",
+   "lengthM": 120.0,
+   "location": {
+    "lat": 35.2045,
+    "lon": 129.0835
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "2ded0403-56fd-5293-8c09-27eb555ccb52",
+   "name": "명성 8S # 4 ~ 명성 7S # 1",
+   "hq": "부산울산",
+   "office": "동래 · 동래S/S 온천 D/L",
+   "fromName": "명성 8S # 4",
+   "fromCode": "0495A157",
+   "toName": "명성 7S # 1",
+   "toCode": "0495A174",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "1995",
+   "lengthM": 166.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "8b10d5cc-b368-566d-984a-0c7efa858423",
+   "name": "동국 13 # 1 ~ 동국 14 # 1",
+   "hq": "부산울산",
+   "office": "남부산 · 좌동S/S 동국 D/L",
+   "fromName": "동국 13 # 1",
+   "fromCode": "0893B971",
+   "toName": "동국 14 # 1",
+   "toCode": "0893A761",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "1995",
+   "lengthM": 644.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "4a149bc2-eb79-5b64-952a-a5c4cabfed41",
+   "name": "동국 13 # 3 ~ 동국 13-1 # 1",
+   "hq": "부산울산",
+   "office": "남부산 · 좌동S/S 동국 D/L",
+   "fromName": "동국 13 # 3",
+   "fromCode": "0893B971",
+   "toName": "동국 13-1 # 1",
+   "toCode": "0893B952",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "1996",
+   "lengthM": 185.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "e048c333-34dc-545e-8428-c22370b0b3b8",
+   "name": "신백 2 # 4 ~ 신백 1 # 4",
+   "hq": "부산울산",
+   "office": "남부산 · 좌동S/S 신백 D/L",
+   "fromName": "신백 2 # 4",
+   "fromCode": "0893G941",
+   "toName": "신백 1 # 4",
+   "toCode": "0893G732",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "넥상스코리아㈜",
+   "mfg": "1995",
+   "lengthM": 169.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "40b43c36-432e-5522-9fc1-92a3ead45d74",
+   "name": "온산 316H2 # 1 ~ 온산 316H2H2 # 4",
+   "hq": "부산울산",
+   "office": "울산 · 온산S/S 우봉 D/L",
+   "fromName": "온산 316H2 # 1",
+   "fromCode": "1607P153",
+   "toName": "온산 316H2H2 # 4",
+   "toCode": "1607P052",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "1996",
+   "lengthM": 126.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "b315043a-26c4-51f6-8c4d-3ad95f89b84b",
+   "name": "온산 335 # 4 ~ 온정 336 # 1",
+   "hq": "부산울산",
+   "office": "울산 · 온산S/S 온정 D/L",
+   "fromName": "온산 335 # 4",
+   "fromCode": "1507W871",
+   "toName": "온정 336 # 1",
+   "toCode": "1507X073",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "한신전선㈜",
+   "mfg": "1997",
+   "lengthM": 121.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "cfd25909-8f76-5150-9987-5806b95f5a67",
+   "name": "고래 41 # 4 ~ 고래 40 # 4",
+   "hq": "부산울산",
+   "office": "울산 · 울산S/S 석유 D/L",
+   "fromName": "고래 41 # 4",
+   "fromCode": "1711A555",
+   "toName": "고래 40 # 4",
+   "toCode": "1711A532",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "대한전선㈜",
+   "mfg": "1999",
+   "lengthM": 140.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "abc1fc87-16a3-51ce-924e-b52b26642df1",
+   "name": "부두 5 # 6 ~ 부두 7 # 4",
+   "hq": "부산울산",
+   "office": "울산 · 울산S/S 항만 D/L",
+   "fromName": "부두 5 # 6",
+   "fromCode": "1613Y301",
+   "toName": "부두 7 # 4",
+   "toCode": "1613Y122",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "대한전선㈜",
+   "mfg": "1999",
+   "lengthM": 148.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "fe65a446-7d0b-56d6-a6fe-1d2e885623e0",
+   "name": "하마 2 # 1 ~ 하마 1 # 4",
+   "hq": "부산울산",
+   "office": "직할 · 양정S/S 하마 D/L",
+   "fromName": "하마 2 # 1",
+   "fromCode": "0393H141",
+   "toName": "하마 1 # 4",
+   "toCode": "0393G911",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "엘에스전선㈜",
+   "mfg": "2005",
+   "lengthM": 213.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "4ba2c24f-0bb0-5f9d-b017-bbbdd3d9e7a3",
+   "name": "하마 3 # 4 ~ 하마 4R2 # 4",
+   "hq": "부산울산",
+   "office": "직할 · 양정S/S 하마 D/L",
+   "fromName": "하마 3 # 4",
+   "fromCode": "0393H247",
+   "toName": "하마 4R2 # 4",
+   "toCode": "0393H267",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "엘에스전선㈜",
+   "mfg": "2007",
+   "lengthM": 133.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "c92e3d23-f4fc-5f3d-b1dc-fa184b2896a6",
+   "name": "하마 4-1 # 3 ~ 하마 4L1 # 1",
+   "hq": "부산울산",
+   "office": "직할 · 양정S/S 하마 D/L",
+   "fromName": "하마 4-1 # 3",
+   "fromCode": "0393H385",
+   "toName": "하마 4L1 # 1",
+   "toCode": "0393H385",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "2003",
+   "lengthM": 55.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "96e3fd05-65c7-51dc-a3c1-be6d67d5de11",
+   "name": "중앙 20 # 4 ~ 중앙 18P # 4",
+   "hq": "부산울산",
+   "office": "직할 · 수정S/S 봉생 D/L",
+   "fromName": "중앙 20 # 4",
+   "fromCode": "0291Z392",
+   "toName": "중앙 18P # 4",
+   "toCode": "0291Z161",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "2001",
+   "lengthM": 252.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "2720e0d4-451f-5838-aef3-4083367e6548",
+   "name": "범내 5 # 4 ~ 범내 6 # 4",
+   "hq": "부산울산",
+   "office": "직할 · 서면S/S 범일 D/L",
+   "fromName": "범내 5 # 4",
+   "fromCode": "0392R671",
+   "toName": "범내 6 # 4",
+   "toCode": "0392R673",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "1995",
+   "lengthM": 31.0,
+   "location": {
+    "lat": 35.1478,
+    "lon": 129.0605
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "654cbffa-6282-5317-9424-264d259a37a7",
+   "name": "동운 1 #4 ~ 동운 2 #1",
+   "hq": "부산울산",
+   "office": "중부산 · 부민S/S 동운 D/L",
+   "fromName": "동운 1 #4",
+   "fromCode": "0190P672",
+   "toName": "동운 2 #1",
+   "toCode": "0190P663",
+   "kind": "지중",
+   "cableType": "CNCV",
+   "size": "325",
+   "maker": "대한전선㈜",
+   "mfg": "1999",
+   "lengthM": 139.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "77cf4093-e380-5bba-9618-231dab0f1694",
+   "name": "부전 25L1 # 1 ~ 부전 25H1 # 1",
+   "hq": "부산울산",
+   "office": "직할 · 서면S/S 대원 D/L",
+   "fromName": "부전 25L1 # 1",
+   "fromCode": "0392B161",
+   "toName": "부전 25H1 # 1",
+   "toCode": "0392B152",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "엘지전선㈜",
+   "mfg": "2004",
+   "lengthM": 124.0,
+   "location": {
+    "lat": 35.1585,
+    "lon": 129.06
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "04c4fee1-3f78-5e97-8695-ec5313299e03",
+   "name": "개금 20 # 3 ~ 가야 7 # 4",
+   "hq": "부산울산",
+   "office": "직할 · 개금S/S 신암 D/L",
+   "fromName": "개금 20 # 3",
+   "fromCode": "0292P892",
+   "toName": "가야 7 # 4",
+   "toCode": "0192W356",
+   "kind": "지중",
+   "cableType": "CNCV-W",
+   "size": "325",
+   "maker": "대한전선㈜",
+   "mfg": "1999",
+   "lengthM": 1400.0,
+   "location": {
+    "lat": 35.152,
+    "lon": 129.022
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "d09a90f0-8441-5e49-a46a-ef8a24a0de8a",
+   "name": "등촌동 D1D (9326Z16S2)",
+   "hq": "남서울",
+   "office": "",
+   "fromName": "등촌동 D1D (9326Z16S2)",
+   "fromCode": "",
+   "toName": "",
+   "toCode": "",
+   "kind": "지중",
+   "cableType": "XLPE",
+   "size": "325",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 2738.0,
+   "location": {
+    "lat": 37.5505,
+    "lon": 126.865
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "6952bd78-1a38-5ff6-92a3-2964896832ea",
+   "name": "우두리 ~ 대경도",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "우두리",
+   "fromCode": "",
+   "toName": "대경도",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "200",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 1278.0,
+   "location": {
+    "lat": 34.7183,
+    "lon": 127.7638
+   },
+   "endLocation": {
+    "lat": 34.7066,
+    "lon": 127.7267
+   },
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "713dcbe6-d282-5a3b-aa6e-46af19ea19ee",
+   "name": "공단 S01 (3173E094)",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "공단 S01 (3173E094)",
+   "fromCode": "",
+   "toName": "",
+   "toCode": "",
+   "kind": "지중",
+   "cableType": "XLPE",
+   "size": "325",
+   "maker": "",
+   "mfg": "2003",
+   "lengthM": 3274.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "5a4bac6a-152f-5ab7-a903-2874ac453e13",
+   "name": "논현동 280 (0122E15S2)",
+   "hq": "남서울",
+   "office": "",
+   "fromName": "논현동 280 (0122E15S2)",
+   "fromCode": "",
+   "toName": "",
+   "toCode": "",
+   "kind": "지중",
+   "cableType": "XLPE",
+   "size": "325",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 1233.0,
+   "location": {
+    "lat": 37.511,
+    "lon": 127.028
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "9e39e3f2-1b51-51da-b31c-bd4ffb805401",
+   "name": "서초동 1700-2 (0122P181SW6)",
+   "hq": "남서울",
+   "office": "",
+   "fromName": "서초동 1700-2 (0122P181SW6)",
+   "fromCode": "",
+   "toName": "",
+   "toCode": "",
+   "kind": "지중",
+   "cableType": "XLPE",
+   "size": "325",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 1376.0,
+   "location": {
+    "lat": 37.492,
+    "lon": 127.011
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "f35bc86f-f3de-5504-a576-5f4703fd572a",
+   "name": "소악도 ~ 당사도",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "소악도",
+   "fromCode": "",
+   "toName": "당사도",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "150",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 2550.0,
+   "location": {
+    "lat": 34.9241,
+    "lon": 126.1947
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "9a203cee-eb88-5664-8b44-e6af4d133abe",
+   "name": "장산도 ~ 자라도 1",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "장산도",
+   "fromCode": "",
+   "toName": "자라도 1",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "150",
+   "maker": "",
+   "mfg": "1979",
+   "lengthM": 1557.0,
+   "location": {
+    "lat": 34.6915,
+    "lon": 126.1846
+   },
+   "endLocation": {
+    "lat": 34.6429,
+    "lon": 126.1553
+   },
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "b4d40f26-24f7-521c-b577-782ff86c749f",
+   "name": "비금도 ~ 상수치도 1",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "비금도",
+   "fromCode": "",
+   "toName": "상수치도 1",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "150",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 2075.0,
+   "location": {
+    "lat": 34.7616,
+    "lon": 125.9288
+   },
+   "endLocation": {
+    "lat": 34.7593,
+    "lon": 126.0224
+   },
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "a616d240-8490-5c2f-9f90-958fec9cf7b0",
+   "name": "상수치도 ~ 상사치도 1",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "상수치도",
+   "fromCode": "",
+   "toName": "상사치도 1",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "150",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 1689.0,
+   "location": {
+    "lat": 34.7593,
+    "lon": 126.0224
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "31cd6e83-214f-56ff-9cf8-58e69b519949",
+   "name": "남성도 ~ 백일도",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "남성도",
+   "fromCode": "",
+   "toName": "백일도",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "200",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 1574.0,
+   "location": null,
+   "endLocation": null,
+   "locSource": "none",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "09f26ae5-aee0-5de9-9f7f-bd929255c6ad",
+   "name": "신지도 ~ 청산도",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "신지도",
+   "fromCode": "",
+   "toName": "청산도",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "200",
+   "maker": "",
+   "mfg": "1985",
+   "lengthM": 11015.0,
+   "location": {
+    "lat": 34.3307,
+    "lon": 126.851
+   },
+   "endLocation": {
+    "lat": 34.1826,
+    "lon": 126.8866
+   },
+   "locSource": "estimated",
+   "note": "1987년 부분수리 접속점(약 6,740 m) — 책자 기록만 있고 전산 미등록",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "7c24695e-a5e3-5ad6-a385-06db179f4cc3",
+   "name": "보길도 ~ 넙도",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "보길도",
+   "fromCode": "",
+   "toName": "넙도",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "60",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 2641.0,
+   "location": {
+    "lat": 34.1544,
+    "lon": 126.5407
+   },
+   "endLocation": {
+    "lat": 34.1937,
+    "lon": 126.5049
+   },
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "a7f8867f-0bd0-57ab-baa8-d817b52fadb2",
+   "name": "조약도 ~ 생일도",
+   "hq": "광주전남",
+   "office": "",
+   "fromName": "조약도",
+   "fromCode": "",
+   "toName": "생일도",
+   "toCode": "",
+   "kind": "해저",
+   "cableType": "XLPE",
+   "size": "240",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 5556.0,
+   "location": {
+    "lat": 34.385,
+    "lon": 126.8973
+   },
+   "endLocation": {
+    "lat": 34.3282,
+    "lon": 126.9799
+   },
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "957b453b-0cd4-5a79-bce4-cf1b952da7e1",
+   "name": "장생포 29",
+   "hq": "부산울산",
+   "office": "",
+   "fromName": "장생포 29",
+   "fromCode": "",
+   "toName": "",
+   "toCode": "",
+   "kind": "지중",
+   "cableType": "XLPE",
+   "size": "227",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 340.0,
+   "location": {
+    "lat": 35.5027,
+    "lon": 129.3808
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  },
+  {
+   "id": "b36e5be0-b233-5946-9572-4b4e84ebe7d2",
+   "name": "암남 7",
+   "hq": "부산울산",
+   "office": "",
+   "fromName": "암남 7",
+   "fromCode": "",
+   "toName": "",
+   "toCode": "",
+   "kind": "지중",
+   "cableType": "XLPE",
+   "size": "325",
+   "maker": "",
+   "mfg": "",
+   "lengthM": 66.0,
+   "location": {
+    "lat": 35.0705,
+    "lon": 129.0143
+   },
+   "endLocation": null,
+   "locSource": "estimated",
+   "note": "",
+   "createdAt": "2026-01-01T00:00:00+09:00"
+  }
+ ],
+ "diagnoses": [
+  {
+   "id": "c8ea801a-a9d9-53af-b308-58a7dbfa9f3a",
+   "siteId": "947bc593-a81b-5866-83c7-f50fbb1eb9cb",
+   "date": "2026-02-09T11:39:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "수산 6 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2602-001-00",
+   "photos": [
+    {
+     "id": "800e0e7c-0f53-5c01-8d95-ab4d56d3bd09",
+     "fileName": "static:seed_susan6.jpg",
+     "thumb": "static:seed_susan6.jpg",
+     "tag": "설비 명판",
+     "meta": {
+      "gpsSource": "사진 EXIF",
+      "originalName": "IMG_명판_susan6.jpg",
+      "width": 378,
+      "height": 820,
+      "make": "Apple",
+      "model": "iPhone 13 mini",
+      "takenAt": "2026-02-09T10:06:34+09:00",
+      "location": {
+       "lat": 35.0908472,
+       "lon": 129.02475
+      },
+      "altitude": 9.663479597063343,
+      "hAccuracy": 7.020801207388694,
+      "heading": 357.9846804014791
+     },
+     "addedAt": "2026-02-09T11:39:00+09:00",
+     "stage": "현장",
+     "source": "이관"
+    }
+   ],
+   "repPhotoId": "800e0e7c-0f53-5c01-8d95-ab4d56d3bd09",
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 11.9,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 13.0,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 13.8,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-02-09T11:39:00+09:00",
+   "updatedAt": "2026-02-09T11:39:00+09:00"
+  },
+  {
+   "id": "8fe6904b-3f36-5b84-b924-e7bd2da71b4d",
+   "siteId": "cd9c583b-7cba-5dbc-8f56-53a15b2e4789",
+   "date": "2026-02-09T16:11:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "수산 9 # 1",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2602-002-00",
+   "photos": [
+    {
+     "id": "bd21b8ae-7a05-507b-adef-c11c1736710e",
+     "fileName": "static:seed_susan9.jpg",
+     "thumb": "static:seed_susan9.jpg",
+     "tag": "설비 명판",
+     "meta": {
+      "gpsSource": "사진 EXIF",
+      "originalName": "IMG_명판_susan9.jpg",
+      "width": 377,
+      "height": 820,
+      "make": "Apple",
+      "model": "iPhone 13 mini",
+      "takenAt": "2026-02-09T13:56:31+09:00",
+      "location": {
+       "lat": 35.0862306,
+       "lon": 129.0254361
+      },
+      "altitude": 3.260959626393492,
+      "hAccuracy": 4.109992178333985,
+      "heading": 104.63895993179881
+     },
+     "addedAt": "2026-02-09T16:11:00+09:00",
+     "stage": "현장",
+     "source": "이관"
+    }
+   ],
+   "repPhotoId": "bd21b8ae-7a05-507b-adef-c11c1736710e",
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 20.7,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 17.2,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 16.2,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-02-09T16:11:00+09:00",
+   "updatedAt": "2026-02-09T16:11:00+09:00"
+  },
+  {
+   "id": "42dbf65f-20c4-5233-9918-d36775890d48",
+   "siteId": "22d4d506-67ad-510c-b7d9-08401adc9cbb",
+   "date": "2026-02-11T11:36:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "신백 5 # 1",
+   "operatorName": "",
+   "maxFreqMHz": 25.0,
+   "docNo": "부산-A-2602-003-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 18.5,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 17.4,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 15.7,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-02-11T11:36:00+09:00",
+   "updatedAt": "2026-02-11T11:36:00+09:00"
+  },
+  {
+   "id": "86be1c71-6feb-55ad-bcfd-c3e013988472",
+   "siteId": "c8d9f416-f94e-58e2-8baa-47a41b744e4e",
+   "date": "2026-02-23T14:46:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "연안 8 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 50.0,
+   "docNo": "부산-A-2602-004-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 34.1,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 31.7,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 32.2,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-02-23T14:46:00+09:00",
+   "updatedAt": "2026-02-23T14:46:00+09:00"
+  },
+  {
+   "id": "7c4883b8-b643-512d-bc1d-a273bba3a8b1",
+   "siteId": "26faaed0-9fec-582b-92a7-6b4f0025a5d2",
+   "date": "2026-02-26T12:02:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "동래 10S # 4",
+   "operatorName": "",
+   "maxFreqMHz": 50.0,
+   "docNo": "부산-A-2602-005-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 20.6,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 22.9,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 23.7,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-02-26T12:02:00+09:00",
+   "updatedAt": "2026-02-26T12:02:00+09:00"
+  },
+  {
+   "id": "6e46530e-eebe-5dc8-8c93-741b2fdc7bce",
+   "siteId": "2ded0403-56fd-5293-8c09-27eb555ccb52",
+   "date": "2026-02-26T16:02:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "명성 8S # 4",
+   "operatorName": "",
+   "maxFreqMHz": 50.0,
+   "docNo": "부산-A-2602-006-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 21.8,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 22.6,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 23.8,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-02-26T16:02:00+09:00",
+   "updatedAt": "2026-02-26T16:02:00+09:00"
+  },
+  {
+   "id": "e28fcdf1-2c8d-5f09-8a80-e76ccbee0663",
+   "siteId": "8b10d5cc-b368-566d-984a-0c7efa858423",
+   "date": "2026-03-04T11:24:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "동국 13 # 1",
+   "operatorName": "",
+   "maxFreqMHz": 50.0,
+   "docNo": "부산-A-2603-007-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 13.5,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 11.8,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 14.2,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-04T11:24:00+09:00",
+   "updatedAt": "2026-03-04T11:24:00+09:00"
+  },
+  {
+   "id": "1aae6a50-88d3-52a6-8637-e497eb24811a",
+   "siteId": "4a149bc2-eb79-5b64-952a-a5c4cabfed41",
+   "date": "2026-03-04T16:48:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "동국 13 # 3",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-008-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 16.9,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 13.7,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 13.5,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-04T16:48:00+09:00",
+   "updatedAt": "2026-03-04T16:48:00+09:00"
+  },
+  {
+   "id": "dd455f8d-8cc7-59c2-a0f8-db4a64b8a4d7",
+   "siteId": "e048c333-34dc-545e-8428-c22370b0b3b8",
+   "date": "2026-03-05T11:04:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "신백 2 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-009-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 24.9,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 24.3,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 23.5,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-05T11:04:00+09:00",
+   "updatedAt": "2026-03-05T11:04:00+09:00"
+  },
+  {
+   "id": "eb187c21-c235-518a-b7d4-e399580631de",
+   "siteId": "40b43c36-432e-5522-9fc1-92a3ead45d74",
+   "date": "2026-03-09T11:49:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "온산 316H2 # 1",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-010-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 26.8,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 29.0,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 29.1,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-09T11:49:00+09:00",
+   "updatedAt": "2026-03-09T11:49:00+09:00"
+  },
+  {
+   "id": "b98110e4-8771-5869-8e7f-9e101c4357bb",
+   "siteId": "b315043a-26c4-51f6-8c4d-3ad95f89b84b",
+   "date": "2026-03-09T15:50:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "온산 335 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-011-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 14.8,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 13.3,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 12.9,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-09T15:50:00+09:00",
+   "updatedAt": "2026-03-09T15:50:00+09:00"
+  },
+  {
+   "id": "303f4d78-3205-538c-b904-11b382f73708",
+   "siteId": "cfd25909-8f76-5150-9987-5806b95f5a67",
+   "date": "2026-03-17T11:50:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "고래 41 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-014-01",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 18.6,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 17.9,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 17.8,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-17T11:50:00+09:00",
+   "updatedAt": "2026-03-17T11:50:00+09:00"
+  },
+  {
+   "id": "201f844d-eb26-5103-b4e3-ab034b78bdae",
+   "siteId": "abc1fc87-16a3-51ce-924e-b52b26642df1",
+   "date": "2026-03-17T11:50:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "부두 5 # 6",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-015-01",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 18.8,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 20.2,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 17.5,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-17T11:50:00+09:00",
+   "updatedAt": "2026-03-17T11:50:00+09:00"
+  },
+  {
+   "id": "953b3a49-6ccd-5185-8325-5d4e968fe3b6",
+   "siteId": "fe65a446-7d0b-56d6-a6fe-1d2e885623e0",
+   "date": "2026-03-23T10:52:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "하마 2 # 1",
+   "operatorName": "",
+   "maxFreqMHz": 25.0,
+   "docNo": "부산-A-2603-016-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 13.1,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 14.6,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 20.8,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-23T10:52:00+09:00",
+   "updatedAt": "2026-03-23T10:52:00+09:00"
+  },
+  {
+   "id": "6e238226-f12f-5040-8fde-56a3b0df0883",
+   "siteId": "4ba2c24f-0bb0-5f9d-b017-bbbdd3d9e7a3",
+   "date": "2026-03-23T14:58:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "하마 3 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 50.0,
+   "docNo": "부산-A-2603-017-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 27.2,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 23.6,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 21.5,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-23T14:58:00+09:00",
+   "updatedAt": "2026-03-23T14:58:00+09:00"
+  },
+  {
+   "id": "352976c9-ba99-5de9-a465-4b15f58f46c3",
+   "siteId": "c92e3d23-f4fc-5f3d-b1dc-fa184b2896a6",
+   "date": "2026-03-24T11:37:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "하마 4-1 # 3",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-018-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 26.3,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 26.8,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 27.5,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-24T11:37:00+09:00",
+   "updatedAt": "2026-03-24T11:37:00+09:00"
+  },
+  {
+   "id": "1f2f6752-0373-54f9-b576-6cc6cffa4a36",
+   "siteId": "96e3fd05-65c7-51dc-a3c1-be6d67d5de11",
+   "date": "2026-03-25T11:32:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "중앙 20 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 50.0,
+   "docNo": "부산-A-2603-018-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 13.5,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 15.1,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 15.5,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-25T11:32:00+09:00",
+   "updatedAt": "2026-03-25T11:32:00+09:00"
+  },
+  {
+   "id": "fb62712c-095f-5f2e-85ab-9cf2cc29e6b4",
+   "siteId": "2720e0d4-451f-5838-aef3-4083367e6548",
+   "date": "2026-03-26T10:35:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "범내 5 # 4",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2603-020-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 27.0,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 24.6,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 30.3,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-26T10:35:00+09:00",
+   "updatedAt": "2026-03-26T10:35:00+09:00"
+  },
+  {
+   "id": "1b6da0f2-819e-5e7d-bf84-22f6cfdeff7a",
+   "siteId": "654cbffa-6282-5317-9424-264d259a37a7",
+   "date": "2026-03-30T11:41:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "동운 1 #4",
+   "operatorName": "",
+   "maxFreqMHz": 50.0,
+   "docNo": "부산-A-2603-023-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 18.3,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 21.2,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 19.2,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-03-30T11:41:00+09:00",
+   "updatedAt": "2026-03-30T11:41:00+09:00"
+  },
+  {
+   "id": "c1fe0526-8e7d-533a-89e2-375d5a1eca99",
+   "siteId": "77cf4093-e380-5bba-9618-231dab0f1694",
+   "date": "2026-04-01T11:02:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "부전 25L1 # 1",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "부산-A-2604-024-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 24.1,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 22.2,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 21.0,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-04-01T11:02:00+09:00",
+   "updatedAt": "2026-04-01T11:02:00+09:00"
+  },
+  {
+   "id": "c8f9dc9e-9d4b-52d4-9961-cb3a66f0ad09",
+   "siteId": "04c4fee1-3f78-5e97-8695-ec5313299e03",
+   "date": "2026-04-02T11:50:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "개금 20 # 3",
+   "operatorName": "",
+   "maxFreqMHz": 25.0,
+   "docNo": "부산-A-2604-025-00",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 14.6,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 14.4,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 14.7,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "부산울산본부 VLF·LIRA 진단결과 관리양식",
+   "createdAt": "2026-04-02T11:50:00+09:00",
+   "updatedAt": "2026-04-02T11:50:00+09:00"
+  },
+  {
+   "id": "8c90929c-b894-57e6-a038-5e1806fc8d06",
+   "siteId": "d09a90f0-8441-5e49-a46a-ef8a24a0de8a",
+   "date": "2025-07-21T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 10.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 13.222,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 11.509,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 11.368,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "1회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-07-21T10:00:00+09:00",
+   "updatedAt": "2025-07-21T10:00:00+09:00"
+  },
+  {
+   "id": "b406042a-0a70-5c02-9333-98af01f4a62b",
+   "siteId": "6952bd78-1a38-5ff6-92a3-2964896832ea",
+   "date": "2025-08-14T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 25.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 13.301,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 13.06,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 11.507,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "2회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-08-14T10:00:00+09:00",
+   "updatedAt": "2025-08-14T10:00:00+09:00"
+  },
+  {
+   "id": "79e930da-eede-5137-b4b6-9fb144737da7",
+   "siteId": "713dcbe6-d282-5a3b-aa6e-46af19ea19ee",
+   "date": "2025-08-14T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 10.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 13.025,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 12.114,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 11.833,
+     "signatures": []
+    }
+   ],
+   "comments": [
+    {
+     "id": "38a5a0f7-01ca-5682-b4c1-8819de4510f0",
+     "text": "A상 1,286.1 m DNORM 88.69 (ΔZ +295%), 타 접속부(37~48)의 약 2배. B·C상 같은 위치는 정상 접속부 수준 → A상 접속부 고장 확인. 접속부는 상간비교(허용편차 10 dB 이내)로 평가.",
+     "author": "중간보고 요약",
+     "at": "2025-08-14T10:00:00+09:00",
+     "stage": "사무실"
+    }
+   ],
+   "imported": true,
+   "source": "3회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-08-14T10:00:00+09:00",
+   "updatedAt": "2025-08-14T10:00:00+09:00"
+  },
+  {
+   "id": "1a40988e-3511-5621-bf4c-b564bbcad06c",
+   "siteId": "5a4bac6a-152f-5ab7-a903-2874ac453e13",
+   "date": "2025-08-26T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 10.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 15.934,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 15.214,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 14.218,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "4회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-08-26T10:00:00+09:00",
+   "updatedAt": "2025-08-26T10:00:00+09:00"
+  },
+  {
+   "id": "8cafc3d9-746b-5016-a4b0-d3229687a4e7",
+   "siteId": "9e39e3f2-1b51-51da-b31c-bd4ffb805401",
+   "date": "2025-09-09T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 10.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 16.444,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 17.069,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 16.825,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "5회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-09T10:00:00+09:00",
+   "updatedAt": "2025-09-09T10:00:00+09:00"
+  },
+  {
+   "id": "908c4a6d-1828-5f1b-9259-b91e84614257",
+   "siteId": "f35bc86f-f3de-5504-a576-5f4703fd572a",
+   "date": "2025-09-22T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 1.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 52.086,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 51.781,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 63.37,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "6회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-22T10:00:00+09:00",
+   "updatedAt": "2025-09-22T10:00:00+09:00"
+  },
+  {
+   "id": "087dcba7-a65a-5902-ad2c-d05c160c4f11",
+   "siteId": "9a203cee-eb88-5664-8b44-e6af4d133abe",
+   "date": "2025-09-22T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C",
+    "N"
+   ],
+   "measuredEnd": "자라도측",
+   "operatorName": "",
+   "maxFreqMHz": 5.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 16.372,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 18.673,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 17.473,
+     "signatures": []
+    },
+    {
+     "phase": "N",
+     "deltaG": 18.723,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "7회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-22T10:00:00+09:00",
+   "updatedAt": "2025-09-22T10:00:00+09:00"
+  },
+  {
+   "id": "98a8edae-56c7-5a32-aa8e-df2c8e29c1f5",
+   "siteId": "9a203cee-eb88-5664-8b44-e6af4d133abe",
+   "date": "2026-09-15T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C",
+    "N"
+   ],
+   "measuredEnd": "장산도측",
+   "operatorName": "",
+   "maxFreqMHz": 5.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": null,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": null,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": null,
+     "signatures": []
+    },
+    {
+     "phase": "N",
+     "deltaG": null,
+     "signatures": []
+    }
+   ],
+   "comments": [
+    {
+     "id": "b400b472-09bc-573f-972a-aca0958ef0a6",
+     "text": "2차 측정(장산도측, 시·종단 반전 표시). 약 250 m 신호가 양쪽 측정 모두 같은 위치에서 재현, 크기 증가 없음 (DNORM B 27.9→28.6, C 25.2→25.3, N 23.8→26.3, A 11.1→15.1). DeltaG 변화 1.1 이내(수치 미입력). 자동 색상등급 변화(RED 30→27)로 B상 판정이 ORANGE→RED로 바뀜 → 고정 기준 필요.",
+     "author": "중간보고 요약",
+     "at": "2026-09-15T10:00:00+09:00",
+     "stage": "사무실"
+    }
+   ],
+   "imported": true,
+   "source": "7회차 LIRA Test Report (xlsx)",
+   "createdAt": "2026-09-15T10:00:00+09:00",
+   "updatedAt": "2026-09-15T10:00:00+09:00"
+  },
+  {
+   "id": "e6d42d29-afff-542c-a9dc-6bc34a4a58bf",
+   "siteId": "b4d40f26-24f7-521c-b577-782ff86c749f",
+   "date": "2025-09-23T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C",
+    "N"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 5.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 7.935,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 7.567,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 7.434,
+     "signatures": []
+    },
+    {
+     "phase": "N",
+     "deltaG": 5.196,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "8회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-23T10:00:00+09:00",
+   "updatedAt": "2025-09-23T10:00:00+09:00"
+  },
+  {
+   "id": "5b9e948e-82a3-5693-9eb8-0035bf4773eb",
+   "siteId": "a616d240-8490-5c2f-9f90-958fec9cf7b0",
+   "date": "2025-09-23T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C",
+    "N"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 10.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 7.925,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 7.046,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 7.819,
+     "signatures": []
+    },
+    {
+     "phase": "N",
+     "deltaG": 3.464,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "9회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-23T10:00:00+09:00",
+   "updatedAt": "2025-09-23T10:00:00+09:00"
+  },
+  {
+   "id": "61459ccd-ee2a-5b74-b9a5-e151544c21d7",
+   "siteId": "31cd6e83-214f-56ff-9cf8-58e69b519949",
+   "date": "2025-09-23T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C",
+    "N"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 10.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 5.105,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 5.072,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 5.746,
+     "signatures": []
+    },
+    {
+     "phase": "N",
+     "deltaG": 4.862,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "10회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-23T10:00:00+09:00",
+   "updatedAt": "2025-09-23T10:00:00+09:00"
+  },
+  {
+   "id": "71ce4971-fd0d-5adf-8b3a-45b9f425483d",
+   "siteId": "09f26ae5-aee0-5de9-9f7f-bd929255c6ad",
+   "date": "2025-09-24T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C",
+    "N"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 1.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 8.59,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 9.026,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 8.111,
+     "signatures": []
+    },
+    {
+     "phase": "N",
+     "deltaG": 5.716,
+     "signatures": []
+    }
+   ],
+   "comments": [
+    {
+     "id": "b1249fd3-1a65-5c6d-ba12-afd9da815162",
+     "text": "A·B·C상 약 6,740 m 단일 JOINT 신호(DNORM 51~53), N상 6,632/6,733 m 두 신호. 1987년 부분수리 접속점으로 LIRA로 처음 확인.",
+     "author": "중간보고 요약",
+     "at": "2025-09-24T10:00:00+09:00",
+     "stage": "사무실"
+    }
+   ],
+   "imported": true,
+   "source": "11회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-24T10:00:00+09:00",
+   "updatedAt": "2025-09-24T10:00:00+09:00"
+  },
+  {
+   "id": "0dab42ab-573a-5df0-9d5b-e58f774b000c",
+   "siteId": "7c24695e-a5e3-5ad6-a385-06db179f4cc3",
+   "date": "2025-09-25T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C",
+    "N"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 5.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 14.069,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 16.018,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 14.527,
+     "signatures": []
+    },
+    {
+     "phase": "N",
+     "deltaG": 6.68,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "12회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-09-25T10:00:00+09:00",
+   "updatedAt": "2025-09-25T10:00:00+09:00"
+  },
+  {
+   "id": "ce212e63-38d2-56ab-8f9a-e77a69be7de1",
+   "siteId": "a7f8867f-0bd0-57ab-baa8-d817b52fadb2",
+   "date": "2025-10-28T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 2.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 7.438,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 7.506,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 6.766,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "13회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-10-28T10:00:00+09:00",
+   "updatedAt": "2025-10-28T10:00:00+09:00"
+  },
+  {
+   "id": "03642cbc-6338-5602-a722-cd0c93bc7906",
+   "siteId": "957b453b-0cd4-5a79-bce4-cf1b952da7e1",
+   "date": "2025-11-06T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 25.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 14.581,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 17.693,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "14회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-11-06T10:00:00+09:00",
+   "updatedAt": "2025-11-06T10:00:00+09:00"
+  },
+  {
+   "id": "08e09057-a243-5de3-b18c-def91bdffffb",
+   "siteId": "b36e5be0-b233-5946-9572-4b4e84ebe7d2",
+   "date": "2025-11-18T10:00:00+09:00",
+   "phases": [
+    "A",
+    "B",
+    "C"
+   ],
+   "measuredEnd": "",
+   "operatorName": "",
+   "maxFreqMHz": 100.0,
+   "docNo": "",
+   "photos": [],
+   "repPhotoId": null,
+   "results": [
+    {
+     "phase": "A",
+     "deltaG": 38.685,
+     "signatures": []
+    },
+    {
+     "phase": "B",
+     "deltaG": 39.425,
+     "signatures": []
+    },
+    {
+     "phase": "C",
+     "deltaG": 37.541,
+     "signatures": []
+    }
+   ],
+   "comments": [],
+   "imported": true,
+   "source": "15회차 LIRA Test Report (xlsx)",
+   "createdAt": "2025-11-18T10:00:00+09:00",
+   "updatedAt": "2025-11-18T10:00:00+09:00"
+  }
+ ]
+}
