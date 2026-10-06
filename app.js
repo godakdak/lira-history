@@ -1137,7 +1137,7 @@ const SignatureCompare = {
       </div>
       <div class="panel">
         <div class="optrow">
-          <div class="grow"><div class="t">Normalized</div><div class="sub xs">LIRA Norm ON: 감쇠 보정 후 0 dB = 평균 변동 + 1 SD, 0 dB 위 신호만 표시. 끄면 Norm OFF(보정 없는 원 신호).</div></div>
+          <div class="grow"><div class="t">Normalized</div><div class="sub xs">LIRA Norm ON: 감쇠 보정 후 0 dB = 평균 변동 + 1 SD</div></div>
           <label class="toggle"><input type="checkbox" v-model="normalize"><span></span></label>
         </div>
         <div class="optrow" v-if="normalize" style="padding-left:12px">
