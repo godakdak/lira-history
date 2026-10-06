@@ -7,6 +7,9 @@ export const allPhases = ['A', 'B', 'C', 'N'];
 // ---------------------------------------------------------------------------
 // 스펙트럼 (주파수 - 임피던스 위상)
 
+/** 파일 버전 — app.js와 같아야 한다 (일부 파일만 올리면 화면에 경고) */
+export const VERSION = '0.4';
+
 export class SpectrumParseError extends Error {}
 
 /** "10.0k", "1.0M", "2500000" → {value Hz, resolution} */
@@ -281,14 +284,14 @@ export function makeNormalization(r, length, variance = 1) {
   const kept = z.filter(x => Math.abs(x - m0) <= OUTLIER_SIGMA * s0);
   const [m1, sd] = kept.length > 4 ? meanStd(kept) : [m0, s0];
   const intercept = Math.min(m1, 0);
-  return { endDistance: dEnd, endPeakDB: peak, slope, intercept, sd, zeroDB: intercept + variance * sd, source: '앱 추정' };
+  return { endDistance: dEnd, endPeakDB: peak, slope, intercept, sd, sigma: variance, zeroDB: intercept + variance * sd, source: '앱 추정' };
 }
 
 /**
  * 화면 표시용 곡선 (LIRA Signature 탭과 같은 방식).
  *  - Normalized OFF: Signature 그대로 (LIRA Norm OFF = NOT Normalized, 감쇠 보정 없음)
  *  - Normalized ON : Signature(d) + slope·d − zero (감쇠 보정 + 0 dB 기준선), 반전 시 d = |L − x|
- * 2SD·3SD 선 높이(정규화 좌표에서 +1 SD, +2 SD)를 함께 돌려준다.
+ * 정규화 좌표에서 'k SD' 높이 = (k − sigma) × sd  (0 dB = 절편 + sigma × SD)
  */
 export function displayTrace(r, norm, normalize, reversed, length, xMax) {
   const step = r.step;
@@ -303,8 +306,13 @@ export function displayTrace(r, norm, normalize, reversed, length, xMax) {
     if (own == null) continue;
     vals[j] = normalize && norm ? own + norm.slope * Math.abs(d) - norm.zeroDB : own;
   }
-  const sd = normalize && norm ? norm.sd : null;
-  return { step, values: vals, sd2: sd, sd3: sd != null ? 2 * sd : null };
+  const sd = normalize && norm && norm.sd > 0 ? norm.sd : null;
+  return { step, values: vals, sd, sigma: norm?.sigma ?? 1 };
+}
+
+/** 정규화 좌표에서 'k SD' 선의 높이 */
+export function sdLevel(trace, k) {
+  return trace && trace.sd != null ? (k - (trace.sigma ?? 1)) * trace.sd : null;
 }
 
 export function traceValueAt(t, x) {
