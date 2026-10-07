@@ -8,7 +8,7 @@ export const allPhases = ['A', 'B', 'C', 'N'];
 // 스펙트럼 (주파수 - 임피던스 위상)
 
 /** 파일 버전 — app.js와 같아야 한다 (일부 파일만 올리면 화면에 경고) */
-export const VERSION = '0.4';
+export const VERSION = '0.5';
 
 export class SpectrumParseError extends Error {}
 
@@ -242,7 +242,7 @@ export function estimateVR(s, bandwidthHz, windowName, length) {
 // 감쇠 보정 + 정규화 (LIRA Normalization, Norm ON)
 //  NORM(d) = Signature(d) + slope·d − zero
 //  slope = (39 dB − 종단 반사 피크) / 종단 거리   (개방 종단 완전 반사 = 39 dB)
-//  zero  = 회귀선 절편 + VAR × SD  ("평균 변동 + 1 SD")
+//  zero  = 회귀선 절편 + VAR × SD  ("평균 변동 + 1 SD", VAR = LIRA Signature 탭의 Variance 0~2, 기본 1)
 //    감쇠 보정한 신호의 [2×분해능, 0.9×긍장] 구간에서 평균 ±1.5 SD 밖의 값(반사 피크·골)을 한 번 걸러 내고,
 //    남은 값의 평균 = 절편(LIRA처럼 0 dB 이하로 제한), 표준편차 = SD.
 //    검증: LIRA 보고서 52건 + 완주 SW1001 3건에서 LIRA 0 dB 선과 중앙값 0.5 dB 차이 (37/55건 1 dB 이내).
@@ -274,17 +274,53 @@ export function makeNormalization(r, length, variance = 1) {
   if (!(dEnd > 0)) return null;
   const slope = Math.max((FULL_REFLECTION_DB - peak) / dEnd, 0);
 
+  const st = cableStats(r, slope, length);
+  if (!st) return null;
+  const intercept = Math.min(st.mean, 0);
+  return { endDistance: dEnd, endPeakDB: peak, slope, intercept, sd: st.sd, sigma: variance, zeroDB: intercept + variance * st.sd, source: '앱 추정' };
+}
+
+/**
+ * 큰 반사(접속지점·근단·종단) 둘레의 제외 구간 [lo, hi] (측정 좌표, m).
+ * 중심 ±minHalf에서 시작해, 반사 곡선(감쇠 보정 신호)이 바깥쪽으로 계속 내려가는 동안 첫 골까지 넓히되 최대 ±maxHalf.
+ */
+export function reflectionIntervals(r, slope, centers, minHalf, maxHalf) {
+  const st = r.step;
+  const y = x => { const s = sigValueAt(r, x); return s == null ? null : s + slope * x; };
+  return centers.map(c => {
+    let lo = Math.max(c - minHalf, 0), hi = c + minHalf;
+    const loMin = Math.max(c - maxHalf, 0), hiMax = c + maxHalf;
+    while (lo - st >= loMin) { const y0 = y(lo), y1 = y(lo - st); if (y0 == null || y1 == null || y1 >= y0) break; lo -= st; }
+    while (hi + st <= hiMax) { const y0 = y(hi), y1 = y(hi + st); if (y0 == null || y1 == null || y1 >= y0) break; hi += st; }
+    return [lo, hi];
+  });
+}
+
+/**
+ * 케이블 구간 통계: 감쇠 보정 신호 y(d) = Signature(d) + slope·d 를 [2×분해능, 0.9×긍장]에서 모아
+ * 평균 ±1.5 SD 밖의 값을 한 번 걸러 낸 평균·SD (LIRA 0 dB 기준선과 같은 계산).
+ * intervals([lo, hi], 측정 좌표) 안의 값은 뺀다 — 국부신호 기준을 접속지점 신호와 무관하게 잡기 위함.
+ */
+export function cableStats(r, slope, length, intervals = []) {
+  if (!(length > 0) || !(r.step > 0)) return null;
+  const v = r.values;
   let a = 2 * r.resolutionM, e = 0.9 * length;
   if (e - a < 0.3 * length) { a = 0.05 * length; e = 0.9 * length; }
   const j0 = Math.max(Math.ceil(a / r.step), 0), j1 = Math.min(Math.floor(e / r.step), v.length - 1);
   if (j1 - j0 < 8) return null;
   const z = [];
-  for (let j = j0; j <= j1; j++) z.push(v[j] + slope * j * r.step);
+  let skipped = 0;
+  for (let j = j0; j <= j1; j++) {
+    const x = j * r.step;
+    if (intervals.some(([lo, hi]) => x >= lo && x <= hi)) { skipped++; continue; }
+    z.push(v[j] + slope * x);
+  }
+  // 접속지점을 빼고 남은 케이블 구간이 통계 구간의 20% 미만이면 기준을 잡지 않는다
+  if (z.length < 9 || z.length < 0.2 * (j1 - j0 + 1)) return null;
   const [m0, s0] = meanStd(z);
   const kept = z.filter(x => Math.abs(x - m0) <= OUTLIER_SIGMA * s0);
-  const [m1, sd] = kept.length > 4 ? meanStd(kept) : [m0, s0];
-  const intercept = Math.min(m1, 0);
-  return { endDistance: dEnd, endPeakDB: peak, slope, intercept, sd, sigma: variance, zeroDB: intercept + variance * sd, source: '앱 추정' };
+  const [mean, sd] = kept.length > 4 ? meanStd(kept) : [m0, s0];
+  return { mean, sd, fromM: a, toM: e, used: z.length, skipped };
 }
 
 /**

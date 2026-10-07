@@ -1,11 +1,11 @@
 // LIRA 진단이력 — 웹 버전 (Swift Playgrounds 데모와 같은 동작)
 // 데이터는 store.js를 통해 중앙 저장소(Supabase) 또는 이 브라우저(로컬 모드)에 저장된다.
 
-import * as Sig from './signature.js?v=0.4';
-import * as Lira from './lira.js?v=0.4';
-import * as Store from './store.js?v=0.4';
+import * as Sig from './signature.js?v=0.5';
+import * as Lira from './lira.js?v=0.5';
+import * as Store from './store.js?v=0.5';
 
-const APP_VERSION = '0.4';
+const APP_VERSION = '0.5';
 /** 일부 파일만 새로 올렸거나 브라우저가 옛 파일을 쓰고 있으면 알린다 */
 const VERSION_PROBLEM = [['signature.js', Sig.VERSION], ['lira.js', Lira.VERSION], ['store.js', Store.VERSION]]
   .filter(([, v]) => v !== APP_VERSION).map(([n, v]) => `${n}(${v || '이전 버전'})`).join(', ');
@@ -108,6 +108,9 @@ function haversine(a, b) {
 }
 function geoText(p) { return p ? `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}` : ''; }
 function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
+/** Variance (LIRA Signature 탭과 같은 0 ~ 2, 0.1 단위) */
+const VAR_MIN = 0, VAR_MAX = 2, VAR_STEP = 0.1;
+const roundVar = v => clamp(Math.round(Number(v) / VAR_STEP) * VAR_STEP, VAR_MIN, VAR_MAX);
 function tickStep(range, target) {
   if (!(range > 0) || !isFinite(range)) return 1;
   const raw = range / target, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
@@ -866,7 +869,7 @@ const SignatureChart = {
     cursor: Number, height: { default: 280 }, interactive: { default: true }, normalized: Boolean,
     levels: { type: Array, default: () => [] },   // 판정 기준선 [{ label, value, color }] (정규화 좌표)
     joints: { type: Array, default: () => [] },   // 접속지점 위치 (m)
-    jointBand: { type: Number, default: 0 },      // 국부신호에서 빼는 범위 (±m)
+    jointBands: { type: Array, default: () => [] },  // 국부신호에서 빼는 범위 (접속지점별 [lo, hi], m)
   },
   emits: ['update:cursor'],
   mounted() {
@@ -877,7 +880,7 @@ const SignatureChart = {
   beforeUnmount() { this.ro && this.ro.disconnect(); },
   watch: {
     curves() { this.draw(); }, hidden() { this.draw(); }, xMax() { this.draw(); }, cursor() { this.draw(); },
-    normalized() { this.draw(); }, levels() { this.draw(); }, lengthMarker() { this.draw(); }, joints() { this.draw(); }, jointBand() { this.draw(); },
+    normalized() { this.draw(); }, levels() { this.draw(); }, lengthMarker() { this.draw(); }, joints() { this.draw(); }, jointBands() { this.draw(); },
   },
   computed: { visible() { return (this.curves || []).filter(c => !this.hidden.includes(c.id)); } },
   methods: {
@@ -937,7 +940,8 @@ const SignatureChart = {
         ctx.save(); ctx.beginPath(); ctx.rect(pr.x, pr.y, pr.w, pr.h); ctx.clip();
         this.joints.forEach((j, k) => {
           if (j > xMax) return;
-          if (this.jointBand > 0) { ctx.fillStyle = 'rgba(120, 90, 200, 0.08)'; ctx.fillRect(px(j - this.jointBand), pr.y, px(j + this.jointBand) - px(j - this.jointBand), pr.h); }
+          const bd = this.jointBands[k];
+          if (bd) { ctx.fillStyle = 'rgba(120, 90, 200, 0.08)'; ctx.fillRect(px(bd[0]), pr.y, px(bd[1]) - px(bd[0]), pr.h); }
           ctx.setLineDash([2, 3]); ctx.strokeStyle = 'rgba(110, 80, 190, 0.8)'; ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(px(j), pr.y); ctx.lineTo(px(j), pr.y + pr.h); ctx.stroke();
           ctx.setLineDash([]); ctx.fillStyle = 'rgba(110, 80, 190, 0.95)'; ctx.font = '700 9px -apple-system, sans-serif';
@@ -961,13 +965,16 @@ const SignatureChart = {
       ctx.restore();
       // 판정 기준선 (관심·주의) — 겹친 곡선들의 평균 1개씩
       if (this.normalized) {
+        let below = 0;
         for (const lv of this.levels) {
-          if (lv.value == null || !isFinite(lv.value) || lv.value < y0 || lv.value > y1) continue;
-          const y = py(lv.value);
-          ctx.save(); ctx.setLineDash([6, 4]); ctx.strokeStyle = lv.color; ctx.lineWidth = 1.3;
+          if (lv.value == null || !isFinite(lv.value) || lv.value > y1) continue;
+          // 0 dB 기준선(Variance)이 기준선보다 높으면 화면 아래 끝에 붙여 '0 dB 아래'로 표시
+          const under = lv.value < y0;
+          const y = under ? py(y0) - 1 : py(lv.value);
+          ctx.save(); ctx.setLineDash(under ? [2, 3] : [6, 4]); ctx.strokeStyle = lv.color; ctx.lineWidth = 1.3;
           ctx.beginPath(); ctx.moveTo(pr.x, y); ctx.lineTo(pr.x + pr.w, y); ctx.stroke(); ctx.restore();
           ctx.fillStyle = lv.color; ctx.font = '700 10px -apple-system, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-          ctx.fillText(lv.label, pr.x + pr.w - 3, y - 1);
+          ctx.fillText(under ? lv.label + ' ▼ 0 dB 아래' : lv.label, pr.x + pr.w - 3, y - 1 - (under ? 12 * below++ : 0));
         }
       }
       // 커서
@@ -1028,7 +1035,7 @@ const SignatureCompare = {
   props: { siteId: String, focusDiagId: String },
   data: () => ({
     mode: 'timeline', phase: 'A', diagId: null, bandwidthMHz: 20, windowName: '4 Term B-H', vrMode: 'length', manualVR: 0.55,
-    normalize: false, showSD: false, curves: [], hidden: [], cursor: null, savedNotice: false,
+    normalize: false, variance: 1, showSD: false, curves: [], hidden: [], cursor: null, savedNotice: false,
     windows: Sig.WINDOWS, loading: false, err: '', jointInput: '',
   }),
   computed: {
@@ -1055,10 +1062,15 @@ const SignatureCompare = {
     /** 반전(반대편 끝에서 측정) — 진단 기록에 저장되어 판정에도 쓰인다 */
     reversed() { return this.allSources.filter(s => resultOf(s.diag, s.phase)?.reversed).map(s => s.id); },
     joints() { return siteJoints(this.site); },
-    jointBand() { const c = this.curves[0]; return c ? JOINT_EXCLUDE * c.resolutionM : 0; },
+    /** 접속지점별 국부신호 제외 범위 (보이는 곡선들의 반사 꼬리 범위를 합친 것, 화면 좌표) */
+    jointBands() {
+      const cs = this.visibleCurves.filter(c => c.exD && c.exD.length === this.joints.length);
+      if (!cs.length) return [];
+      return this.joints.map((_, j) => [Math.min(...cs.map(c => c.exD[j][0])), Math.max(...cs.map(c => c.exD[j][1]))]);
+    },
     key() {
       return JSON.stringify([this.bandwidthMHz, this.windowName, this.vrMode, this.manualVR, this.mode, this.phase, this.diagId,
-        this.sources.map(s => s.ref.fileName), this.reversed, this.normalize, this.length, this.joints]);
+        this.sources.map(s => s.ref.fileName), this.reversed, this.normalize, this.variance, this.length, this.joints]);
     },
     /** 접속지점 비교표: 행 = 접속개소, 열 = 보이는 곡선. 상간 비교 모드에서는 편차로 판정 색 */
     jointTable() {
@@ -1074,7 +1086,7 @@ const SignatureCompare = {
             const p = c.jl[j], it = cmp ? cmp[c.id][j] : null;
             const g = it && it.dev != null ? jointGrade(it) : null;
             const sg = v => (v == null ? '–' : (v >= 0 ? '+' : '') + v.toFixed(1));
-            const tip = p && p.floor ? '0 dB 기준선 아래 (접속지점 신호 없음)' : it ? `상간 ${sg(it.dP)} · 개소간 ${sg(it.dJ)} dB` : '';
+            const tip = p && p.floor ? '케이블 평균 + 1 SD 아래 (접속지점 신호 없음)' : it ? `상간 ${sg(it.dP)} · 개소간 ${sg(it.dJ)} dB` : '';
             return { id: c.id, txt: !p ? '–' : (p.floor ? '≤' : '') + p.S.toFixed(1), sub: it && it.dev != null ? sg(it.dev) : '', cls: g ? 'jc-' + g.key : p && p.floor ? 'jc-floor' : '', tip };
           }),
         })),
@@ -1082,15 +1094,16 @@ const SignatureCompare = {
     },
     resText() { const c = this.curves[0]; return c ? `분해능 ${c.resolutionM.toFixed(1)} m · Shadow ${(c.resolutionM * 5 / 3).toFixed(1)} m` : ''; },
     visibleCurves() { return this.curves.filter(c => !this.hidden.includes(c.id)); },
-    /** 관심·주의 기준선: 보이는 곡선들의 기준선 높이 평균 (한 개씩만 표시) */
+    /** 관심·주의 기준선: 곡선마다 (접속지점 제외 케이블 평균 + k×SD)를 정규화 좌표로 옮긴 높이의 평균 (한 개씩만 표시) */
     levels() {
       if (!this.normalize || !this.showSD) return [];
-      const cs = this.visibleCurves.filter(c => c.trace.sd != null);
+      const cs = this.visibleCurves.filter(c => c.stat && c.zero != null);
       if (!cs.length) return [];
       const cr = state.criteria;
-      const avg = k => cs.reduce((t, c) => t + Sig.sdLevel(c.trace, k), 0) / cs.length;
+      const avg = k => cs.reduce((t, c) => t + c.stat.mean + k * c.stat.sd - c.zero, 0) / cs.length;
       return [{ label: '관심', value: avg(cr.locWatchSD), color: WATCH_COLOR }, { label: '주의', value: avg(cr.locCautionSD), color: CAUTION_COLOR }];
     },
+    varText() { return this.variance.toFixed(1); },
     tdr() { return Sig.tdrVelocity(this.manualVR).toFixed(1); },
   },
   watch: { key() { this.schedule(); } },
@@ -1108,6 +1121,9 @@ const SignatureCompare = {
       this.bandwidthMHz = clamp(initial, this.bwLo, this.bwHi);
       if (!this.length) this.vrMode = 'manual';
       this.normalize = !!this.length;   // LIRA Signature 탭 기본값 (Norm ON)
+      // Variance: 구간 기준 → LIRA 분석 때 값 → 1 (LIRA 기본)
+      const lv = this.allSources.find(x => x.ref.lira?.norm?.sigma != null)?.ref.lira.norm.sigma;
+      this.variance = roundVar(s?.sigVariance ?? lv ?? 1);
       this.schedule();
     },
     schedule() {
@@ -1137,14 +1153,16 @@ const SignatureCompare = {
           const est = this.vrCache.get(k); if (est) vr = est;
         }
         const rev = this.reversed.includes(src.id);
-        const { r, norm, trace } = signatureCurve(data, src.ref, {
-          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: rev,
+        // 접속지점: 화면(구간 시점 기준) 좌표 → 측정 좌표
+        const own = L ? this.joints.map(x => (rev ? L - x : x)) : [];
+        const { r, norm, stat, ex, trace } = signatureCurve(data, src.ref, {
+          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: rev, variance: this.variance, exclude: own,
         });
-        // 접속지점 신호 (감쇠 보정 dB, 화면 좌표 = 구간 시점 기준)
+        // 접속지점 신호 (감쇠 보정 dB)
         let jl = null, nt = null;
         if (norm && L) {
           nt = this.normalize ? trace : Sig.displayTrace(r, norm, true, rev, L, xm);
-          if (this.joints.length) jl = this.joints.map(x => jointPeak(nt, norm.zeroDB, x, r.resolutionM));
+          if (own.length) jl = own.map(x => jointPeak({ r, norm, stat }, x));
         }
         let title, color;
         if (this.mode === 'timeline') {
@@ -1158,18 +1176,23 @@ const SignatureCompare = {
         const parts = [`VR ${vr.toFixed(3)}`];
         let grade = null;
         if (this.normalize && norm) {
-          const m = localMetric({ r, norm, trace }, L, this.joints);
+          const m = localMetric({ r, norm, stat, ex }, L);
           grade = m ? localGrade(m) : null;
-          if (grade) parts.unshift(`국부신호 ${grade.label}` + (grade.key !== 'good' ? ` (${Math.round(m.atM)} m 부근)` : ''));
+          if (grade) parts.unshift(`국부신호 ${grade.label}` + (grade.key !== 'good' ? ` (${Math.round(rev ? L - m.atM : m.atM)} m 부근)` : ''));
+          if (stat) parts.splice(grade ? 1 : 0, 0, `국부신호 기준 SD ${stat.sd.toFixed(1)} dB` + (own.length ? `(접속지점 ${own.length}곳 제외)` : ''));
           parts.push(`감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB`);
           parts.push(`기준선 ${norm.source}`);
         } else if (this.normalize) parts.push('긍장 없음: 정규화 불가');
         parts.push(src.ref.label || src.ref.originalName);
-        out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), nt: nt && markRaw(nt), jl, date: src.diag.date, vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
+        const exD = ex.map(([lo, hi]) => (rev ? [L - hi, L - lo] : [lo, hi]));   // 제외 범위 → 화면 좌표
+        out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), nt: nt && markRaw(nt), jl, stat, zero: norm ? norm.zeroDB : null, exD,
+          date: src.diag.date, vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
       });
       this.curves = out;
       this.savedNotice = false;
     },
+    stepVar(d) { this.variance = roundVar(this.variance + d * VAR_STEP); },
+    roundVar,
     toggleHidden(id) { this.hidden = this.hidden.includes(id) ? this.hidden.filter(x => x !== id) : [...this.hidden, id]; },
     toggleRev(id) {
       const src = this.allSources.find(s => s.id === id); if (!src) return;
@@ -1207,7 +1230,7 @@ const SignatureCompare = {
     fmtDay,
     readout(c) { const v = Sig.traceValueAt(c.trace, this.cursor); return v == null ? '–' : v.toFixed(1) + ' dB'; },
     async saveStd() {
-      await A.updateSite(this.siteId, s => { s.sigBandwidthMHz = this.bandwidthMHz; s.sigWindow = this.windowName; });
+      await A.updateSite(this.siteId, s => { s.sigBandwidthMHz = this.bandwidthMHz; s.sigWindow = this.windowName; s.sigVariance = this.variance; });
       this.savedNotice = true;
       A.refreshSite(this.siteId).catch(() => {});   // 기준 대역폭으로 판정 다시 계산
     },
@@ -1232,7 +1255,7 @@ const SignatureCompare = {
         <option v-for="d in diagsWithData" :key="d.id" :value="d.id">{{ fmtDay(d.date) }}</option>
       </select>
       <div class="chartbox">
-        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="length" v-model:cursor="cursor" :normalized="normalize" :levels="levels" :joints="joints" :joint-band="jointBand"></signature-chart>
+        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="length" v-model:cursor="cursor" :normalized="normalize" :levels="levels" :joints="joints" :joint-bands="jointBands"></signature-chart>
       </div>
       <div class="readout" v-if="cursor != null">
         <b class="mono">{{ cursor.toFixed(1) }} m</b>
@@ -1246,11 +1269,21 @@ const SignatureCompare = {
       </div>
       <div class="panel">
         <div class="optrow">
-          <div class="grow"><div class="t">Normalized</div><div class="sub xs">LIRA Norm ON: 감쇠 보정 후 0 dB = 평균 변동 + 1 SD, 0 dB 위 신호만 표시. 끄면 Norm OFF(보정 없는 원 신호).</div></div>
+          <div class="grow"><div class="t">Normalized</div><div class="sub xs">LIRA Norm ON: 감쇠 보정 후 0 dB = 평균 변동 + Variance × SD, 0 dB 위 신호만 표시. 끄면 Norm OFF(보정 없는 원 신호).</div></div>
           <label class="toggle"><input type="checkbox" v-model="normalize"><span></span></label>
         </div>
         <div class="optrow" v-if="normalize" style="padding-left:12px">
-          <div class="grow">관심 · 주의 기준선 표시</div>
+          <div class="grow"><div>Variance <span class="sub xs">(0 dB = 평균 + Variance × SD)</span></div></div>
+          <button class="btn small mono" :disabled="variance <= 0" @click="stepVar(-1)" aria-label="Variance 0.1 낮춤">−</button>
+          <span class="mono bold" style="min-width:34px;text-align:center">{{ varText }}</span>
+          <button class="btn small mono" :disabled="variance >= 2" @click="stepVar(1)" aria-label="Variance 0.1 높임">＋</button>
+        </div>
+        <div v-if="normalize" style="padding:0 0 4px 12px">
+          <input type="range" class="range" min="0" max="2" step="0.1" :value="variance" @input="variance = roundVar($event.target.value)">
+          <div class="btnrow xs sub" style="justify-content:space-between"><span>0</span><span>1 (LIRA 기본)</span><span>2</span></div>
+        </div>
+        <div class="optrow" v-if="normalize" style="padding-left:12px">
+          <div class="grow"><div>관심 · 주의 기준선 표시</div><div class="sub xs">국부신호 판정 기준 = 접속지점을 뺀 케이블 구간의 평균 + 설정한 SD 배수. Variance와 무관합니다.</div></div>
           <label class="toggle"><input type="checkbox" v-model="showSD"><span></span></label>
         </div>
         <div class="sub xs" v-if="!length">긍장 정보가 있어야 감쇠 보정과 정규화를 할 수 있습니다. 구간 정보에 긍장을 입력하세요.</div>
@@ -1273,7 +1306,7 @@ const SignatureCompare = {
               <td><button class="linkbtn danger xs" @click="removeJoint(row.d)">삭제</button></td>
             </tr></tbody>
           </table>
-          <div class="sub xs" style="margin-top:4px">{{ mode === 'phases' ? '값: 감쇠 보정한 접속지점 신호(dB). 아래 작은 숫자: 편차 = 같은 접속개소 다른 상, 같은 상 다른 접속개소의 중앙값보다 큰 정도 중 큰 값. 색: 편차 판정 (관심 노랑·주의 선홍). ≤: 0 dB 기준선 아래(신호 없음, 판정 안 함).' : '값: 감쇠 보정한 접속지점 신호(dB). 날짜별 변화를 비교하세요. 편차·판정은 상간 비교 화면에서 보입니다. ≤: 0 dB 기준선 아래(신호 없음).' }}</div>
+          <div class="sub xs" style="margin-top:4px">{{ mode === 'phases' ? '값: 감쇠 보정한 접속지점 신호(dB). 아래 작은 숫자: 편차 = 같은 접속개소 다른 상, 같은 상 다른 접속개소의 중앙값보다 큰 정도 중 큰 값. 색: 편차 판정 (관심 노랑·주의 선홍). ≤: 케이블 평균 + 1 SD 아래(신호 없음, 판정 안 함). 음영: 국부신호에서 빼는 범위(반사 곡선이 끝나는 곳까지).' : '값: 감쇠 보정한 접속지점 신호(dB). 날짜별 변화를 비교하세요. 편차·판정은 상간 비교 화면에서 보입니다. ≤: 케이블 평균 + 1 SD 아래(신호 없음).' }}</div>
         </div>
       </div>
       <div class="panel">
@@ -1285,7 +1318,7 @@ const SignatureCompare = {
           <div style="text-align:right;min-width:92px"><div class="mono">{{ manualVR.toFixed(3) }}</div><div class="sub xs mono">TDR {{ tdr }} m/μs</div></div>
         </div>
         <div class="optrow">
-          <div class="grow sub small">{{ site && site.sigBandwidthMHz ? '구간 기준: ' + site.sigBandwidthMHz.toFixed(2) + ' MHz · ' + (site.sigWindow || '4 Term B-H') : '구간 기준 대역폭이 아직 없습니다.' }}</div>
+          <div class="grow sub small">{{ site && site.sigBandwidthMHz ? '구간 기준: ' + site.sigBandwidthMHz.toFixed(2) + ' MHz · ' + (site.sigWindow || '4 Term B-H') + (site.sigVariance != null ? ' · Variance ' + Number(site.sigVariance).toFixed(1) : '') : '구간 기준 대역폭이 아직 없습니다.' }}</div>
           <button class="btn small" @click="saveStd">{{ savedNotice ? '저장됨' : '현재 조건을 구간 기준으로 저장' }}</button>
         </div>
       </div>
@@ -1304,17 +1337,25 @@ const SignatureCompare = {
 
 /**
  * 스펙트럼 1개의 Signature 곡선 (LIRA와 같은 계산).
- * 감쇠 기울기·0 dB 기준선은 앱이 계산하고, LIRA 분석값(.sdt)이 있고 대역(±2%)·윈도우(4 Term B-H)가 같으면 그 값을 쓴다.
+ *  - 표시(Normalized ON): 감쇠 보정 후 0 dB = 절편 + Variance × SD — LIRA Normalized 그대로.
+ *    LIRA 분석값(.sdt)이 있고 대역(±2%)·윈도우(4 Term B-H)가 같으면 그 기울기·절편·SD를 쓴다.
+ *    variance가 null이면 LIRA 분석 때의 Variance(없으면 1).
+ *  - ex: 접속지점(exclude, 측정 좌표)마다 반사 곡선 전체를 덮는 제외 구간 (±1.5×분해능 ~ 첫 골, 최대 ±3×분해능)
+ *  - stat: 국부신호 판정 기준 = ex를 뺀 케이블 구간의 평균·SD. 표시용 0 dB 기준선·Variance와 무관하다.
  */
-function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed }) {
+function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed, variance = null, exclude = [] }) {
   const L = length || null;
   const r = Sig.computeSignature(data, bwHz, windowName, vr, Math.max(xMax, L || 0) * 1.02);
-  let norm = Sig.makeNormalization(r, L);
+  let norm = Sig.makeNormalization(r, L, variance ?? 1);
   const ln = ref?.lira?.norm, lbw = ref?.lira?.bandHz;
   if (norm && ln && lbw && Math.abs(bwHz - lbw) / lbw < 0.02 && windowName === '4 Term B-H') {
-    norm = { ...norm, slope: ln.slope, zeroDB: ln.zero, sd: ln.sd ?? norm.sd, sigma: ln.sd != null ? (ln.sigma ?? 1) : norm.sigma, source: 'LIRA 분석값' };
+    const sd = ln.sd ?? norm.sd, sig0 = ln.sd != null ? (ln.sigma ?? 1) : 1;
+    const intercept = ln.zero - sig0 * sd, v = variance ?? sig0;
+    norm = { ...norm, slope: ln.slope, intercept, sd, sigma: v, zeroDB: intercept + v * sd, source: 'LIRA 분석값' };
   }
-  return { r, norm, trace: Sig.displayTrace(r, norm, normalize, reversed, L, xMax) };
+  const ex = norm && L ? Sig.reflectionIntervals(r, norm.slope, exclude, JOINT_EXCLUDE * r.resolutionM, JOINT_EXCLUDE_MAX * r.resolutionM) : [];
+  const stat = norm && L ? Sig.cableStats(r, norm.slope, L, ex) : null;
+  return { r, norm, stat, ex, trace: Sig.displayTrace(r, norm, normalize, reversed, L, xMax) };
 }
 
 /** 미리보기·국부신호 판정에 쓰는 기본 분석 조건: 구간 기준 대역폭 → LIRA 분석대역 → 가이드라인 → 40% */
@@ -1327,13 +1368,16 @@ function analysisFor(site, ref, data) {
   let vr = 0.55;
   if (L) { const est = Sig.estimateVR(data, bwHz, windowName, L); if (est) vr = est; }
   const xMax = L ? L * 1.05 : vr * Sig.C / (2 * data.df) / 4;
-  return { bwHz, windowName, vr, length: L, xMax };
+  const variance = site.sigVariance != null && isFinite(site.sigVariance) ? roundVar(site.sigVariance) : null;
+  return { bwHz, windowName, vr, length: L, xMax, variance };
 }
 // ---------------------------------------------------------------------------
 // 판정 계산: 국부신호(접속지점 제외) · 접속지점(상간·개소간 비교)
 
-const EVAL_VERSION = 'e3';
-const JOINT_EXCLUDE = 1.5;   // 접속지점 앞뒤 ±1.5×분해능은 국부신호에서 제외
+const EVAL_VERSION = 'e5';
+const JOINT_EXCLUDE = 1.5;     // 접속지점 앞뒤 최소 ±1.5×분해능은 국부신호에서 제외
+const JOINT_EXCLUDE_MAX = 3;   // 반사 꼬리가 이어지면 첫 골까지, 최대 ±3×분해능
+const END_EXCLUDE = 2, END_EXCLUDE_MAX = 4;   // 근단·종단 반사: 최소 2, 최대 4×분해능
 const JOINT_SEARCH = 0.75;   // 접속지점 신호 = ±0.75×분해능 안의 최댓값
 const round1 = v => (v == null || !isFinite(v) ? null : Math.round(v * 10) / 10);
 function medianOf(a) { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
@@ -1355,36 +1399,54 @@ function needsEval(d) {
 }
 
 /**
- * 국부신호 지표: 근단·종단(각 2×분해능)과 접속지점(±1.5×분해능)을 뺀 구간에서
- * 감쇠 보정 신호가 평균 변동보다 몇 SD 높은지의 최댓값(maxK)과 위치(곡선 좌표).
+ * 국부신호를 찾는 구간 (측정 좌표). 근단·종단 반사도 접속지점처럼 큰 반사라 그 꼬리까지 뺀다:
+ * 2×분해능에서 시작해 반사 곡선이 계속 내려가는 동안(첫 골까지) 더 빼되 최대 4×분해능.
  */
-function localMetric(c, L, exclude = []) {
-  const { r, norm, trace } = c;
-  if (!norm || !(L > 0) || !(trace.sd > 0)) return null;
-  const res = r.resolutionM, a = 2 * res, b = L - 2 * res, ex = JOINT_EXCLUDE * res;
+function searchRange(r, slope, L) {
+  const res = r.resolutionM;
+  const [[, a], [b]] = Sig.reflectionIntervals(r, slope, [0, L], END_EXCLUDE * res, END_EXCLUDE_MAX * res);
+  return [a, b];
+}
+
+/**
+ * 국부신호 지표: 근단·종단 반사(searchRange)와 접속지점 반사(c.ex)를 뺀 구간에서
+ * 감쇠 보정 신호가 케이블 구간 평균보다 몇 SD 높은지의 최댓값(maxK)과 위치.
+ * 평균·SD(c.stat)도 접속지점을 빼고 계산한 값이라 접속개소 수와 무관하다. 좌표는 측정 좌표(m).
+ */
+function localMetric(c, L) {
+  const { r, norm, stat } = c, ex = c.ex || [];
+  if (!norm || !stat || !(L > 0) || !(stat.sd > 0)) return null;
+  const [a, b] = searchRange(r, norm.slope, L);
   if (b - a < 0.2 * L) return null;
   let maxK = -Infinity, at = null;
-  for (let x = a; x <= b; x += trace.step) {
-    if (exclude.some(j => Math.abs(x - j) <= ex)) continue;
-    const v = Sig.traceValueAt(trace, x);
-    if (v == null) continue;
-    const k = v / trace.sd + (trace.sigma ?? 1);
+  for (let x = a; x <= b; x += r.step) {
+    if (ex.some(([lo, hi]) => x >= lo && x <= hi)) continue;
+    const s = Sig.sigValueAt(r, x);
+    if (s == null) continue;
+    const k = (s + norm.slope * x - stat.mean) / stat.sd;
     if (k > maxK) { maxK = k; at = x; }
   }
   return isFinite(maxK) ? { maxK: Math.round(maxK * 100) / 100, atM: at } : null;
 }
 
 /**
- * 접속지점 신호 크기: ±0.75×분해능 안에서 정규화 곡선의 최댓값 + 0 dB 기준선 = 감쇠 보정 신호(dB).
- * 0 dB 기준선(잡음 수준) 아래면 기준선 값으로 보고 floor 표시 → 비교 기준으로만 쓰고 판정하지 않는다.
+ * 접속지점 신호 크기: 측정 좌표 x ±0.75×분해능 안에서 감쇠 보정 신호의 최댓값(dB).
+ * 케이블 구간 평균 + 1 SD(접속지점 제외 통계, 잡음 수준) 아래면 그 값으로 보고 floor 표시 → 비교 기준으로만 쓰고 판정하지 않는다.
  */
-function jointPeak(trace, zero, x, res) {
+function jointPeak(c, x) {
+  const { r, norm, stat } = c;
+  if (!norm) return null;
+  const res = r.resolutionM;
   let best = null;
-  for (let t = Math.max(x - JOINT_SEARCH * res, 0); t <= x + JOINT_SEARCH * res; t += trace.step) {
-    const v = Sig.traceValueAt(trace, t);
-    if (v != null && (best == null || v > best)) best = v;
+  for (let t = Math.max(x - JOINT_SEARCH * res, 0); t <= x + JOINT_SEARCH * res; t += r.step) {
+    const s = Sig.sigValueAt(r, t);
+    if (s == null) continue;
+    const y = s + norm.slope * t;
+    if (best == null || y > best) best = y;
   }
-  return best == null ? null : { S: Math.max(best, 0) + zero, floor: best < 0 };
+  if (best == null) return null;
+  const floor = stat ? stat.mean + stat.sd : norm.zeroDB;
+  return { S: Math.max(best, floor), floor: best < floor };
 }
 
 /**
@@ -1422,13 +1484,14 @@ async function evaluateDiag(d) {
     if (!L) { out[ph] = { local: { key, maxK: null, reason: '긍장 없음' }, joint: { key, dev: null, reason: '긍장 없음' } }; continue; }
     const data = await loadSpectrum(r.spectrum.fileName);
     const an = analysisFor(site, r.spectrum, data);
-    const c = signatureCurve(data, r.spectrum, { ...an, normalize: true, reversed: false });
     const rev = !!r.reversed, conv = x => (rev ? L - x : x);   // 구간 좌표 ↔ 측정 좌표
     const own = joints.map(conv);
-    const m = localMetric(c, L, own);
-    out[ph] = { local: { key, maxK: m ? m.maxK : null, atM: m ? Math.round(conv(m.atM)) : null, src: c.norm?.source || '', bwMHz: Math.round(an.bwHz / 1e4) / 100 } };
-    if (!m) out[ph].local.reason = c.norm ? '케이블이 짧거나 신호 없음' : '정규화 불가';
-    if (c.norm && joints.length) levels[ph] = own.map(x => jointPeak(c.trace, c.norm.zeroDB, x, c.r.resolutionM));
+    const c = signatureCurve(data, r.spectrum, { ...an, normalize: true, reversed: false, exclude: own });
+    const m = localMetric(c, L);
+    out[ph] = { local: { key, maxK: m ? m.maxK : null, atM: m ? Math.round(conv(m.atM)) : null, src: c.norm?.source || '', bwMHz: Math.round(an.bwHz / 1e4) / 100,
+      meanDB: c.stat ? round1(c.stat.mean) : null, sdDB: c.stat ? round1(c.stat.sd) : null, nJoints: joints.length } };
+    if (!m) out[ph].local.reason = !c.norm ? '정규화 불가' : !c.stat ? '접속지점을 빼면 케이블 구간이 너무 짧음' : '케이블이 짧거나 신호 없음';
+    if (c.norm && joints.length) levels[ph] = own.map(x => jointPeak(c, x));
   }
   const cmp = jointCompare(levels);
   for (const ph of Object.keys(out)) {
@@ -1441,7 +1504,7 @@ async function evaluateDiag(d) {
     if (best) out[ph].joint = { key, dev: round1(best.dev), dP: round1(best.dP), dJ: round1(best.dJ), j: bj + 1, atM: Math.round(joints[bj]), n: joints.length, levels: lv };
     else {
       const reason = !levels[ph] ? '정규화 불가'
-        : items.some(it => it && !it.floor) ? '비교 대상 없음 (상 또는 접속개소가 1개)' : '신호 없음 (모두 0 dB 기준선 아래)';
+        : items.some(it => it && !it.floor) ? '비교 대상 없음 (상 또는 접속개소가 1개)' : '신호 없음 (모두 케이블 평균 + 1 SD 아래)';
       out[ph].joint = { key, dev: null, reason, n: joints.length, levels: lv };
     }
   }
@@ -1452,9 +1515,9 @@ async function evaluateDiag(d) {
 const SignaturePreview = {
   components: { SignatureChart },
   props: { refObj: Object, site: Object, phase: String, reversed: Boolean },
-  data: () => ({ curves: [], xMax: 100, caption: '', cursor: null, normalized: false, band: 0 }),
+  data: () => ({ curves: [], xMax: 100, caption: '', cursor: null, normalized: false, bands: [] }),
   computed: {
-    key() { return [this.refObj.fileName, this.site.sigBandwidthMHz, this.site.sigWindow, this.site.lengthM, this.reversed].join('|'); },
+    key() { return [this.refObj.fileName, this.site.sigBandwidthMHz, this.site.sigWindow, this.site.sigVariance, this.site.lengthM, this.reversed, this.joints.join(',')].join('|'); },
     joints() { return siteJoints(this.site); },
   },
   watch: { key: { immediate: true, handler() { this.build(); } } },
@@ -1464,17 +1527,18 @@ const SignaturePreview = {
       try { data = await loadSpectrum(this.refObj.fileName); } catch (e) { this.caption = '스펙트럼을 읽지 못했습니다: ' + e.message; return; }
       const an = analysisFor(this.site, this.refObj, data);
       const { bwHz: bw, windowName: win, vr, length: L, xMax: xm } = an;
-      const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: !!(this.reversed && L) });
+      const rev = !!(this.reversed && L);
+      const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: rev, exclude: L ? this.joints.map(x => (rev ? L - x : x)) : [] });
       const { r, norm, trace } = c;
       this.xMax = xm;
-      this.band = JOINT_EXCLUDE * r.resolutionM;
+      this.bands = c.ex.map(([lo, hi]) => (rev ? [L - hi, L - lo] : [lo, hi]));
       this.normalized = !!(L && norm);
       this.caption = `대역폭 ${(bw / 1e6).toFixed(2)} MHz · ${win} · VR ${vr.toFixed(3)} · 분해능 ${r.resolutionM.toFixed(1)} m · ` +
-        (this.normalized ? `Normalized (기준선 ${norm.source})` : 'Normalized OFF (긍장 없음)') + (this.reversed ? ' · 반전' : '');
+        (this.normalized ? `Normalized · Variance ${norm.sigma.toFixed(1)} (기준선 ${norm.source})` : 'Normalized OFF (긍장 없음)') + (this.reversed ? ' · 반전' : '');
       this.curves = [markRaw({ id: this.phase, title: this.phase + '상', color: PHASE_COLOR[this.phase] || COLORS.gray, trace: markRaw(trace) })];
     },
   },
-  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="site.lengthM" :cursor="null" :height="170" :interactive="false" :normalized="normalized" :joints="joints" :joint-band="band"></signature-chart></div>
+  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="site.lengthM" :cursor="null" :height="170" :interactive="false" :normalized="normalized" :joints="joints" :joint-bands="bands"></signature-chart></div>
     <div class="sub xs mono" style="margin-top:4px">{{ caption }}</div></div>`,
 };
 
@@ -2267,7 +2331,7 @@ const DiagView = {
       <template v-if="r(ph) && r(ph).spectrum">
         <div class="field"><label>국부신호<div class="xs sub" style="font-weight:400">접속지점 제외</div></label><span class="grow"></span>
           <template v-if="lgrade(ph)">
-            <span class="mono small">{{ r(ph).local.maxK.toFixed(1) }} SD<span class="sub" v-if="r(ph).local.atM != null"> · {{ r(ph).local.atM }} m</span></span>
+            <span class="mono small" :title="r(ph).local.sdDB != null ? '기준: 케이블 구간 평균 ' + r(ph).local.meanDB + ' dB · SD ' + r(ph).local.sdDB + ' dB' + (r(ph).local.nJoints ? ' (접속지점 ' + r(ph).local.nJoints + '곳 제외)' : '') : ''">{{ r(ph).local.maxK.toFixed(1) }} SD<span class="sub" v-if="r(ph).local.atM != null"> · {{ r(ph).local.atM }} m</span></span>
             <span class="chip" :class="lgrade(ph).cls">{{ lgrade(ph).label }}</span>
           </template>
           <span v-else class="xs sub">{{ evalText(r(ph).local) }}</span>
@@ -2526,14 +2590,14 @@ const SettingsView = {
       <div class="field"><label><span class="chip yellow">관심</span></label><input class="input mono crit" inputmode="decimal" v-model="f.dgWatch"><span class="sub unit">이상</span></div>
       <div class="field"><label><span class="chip rose">주의</span></label><input class="input mono crit" inputmode="decimal" v-model="f.dgCaution"><span class="sub unit">이상</span></div>
       <div class="row xs sub">양호 &lt; {{ critNums.dgWatch }} ≤ 관심 &lt; {{ critNums.dgCaution }} ≤ 주의 · Wirescan 권고치 65 / 75 (×10⁻³)</div>
-      <div class="row bold small">국부신호 <span class="sub xs" style="font-weight:400">(Normalized Signature, 평균 변동 대비)</span></div>
+      <div class="row bold small">국부신호 <span class="sub xs" style="font-weight:400">(감쇠 보정 신호, 케이블 구간 평균 + k×SD)</span></div>
       <div class="field"><label><span class="chip yellow">관심</span></label><input class="input mono crit" inputmode="decimal" v-model="f.locWatchSD"><span class="sub unit">SD 초과</span></div>
       <div class="field"><label><span class="chip rose">주의</span></label><input class="input mono crit" inputmode="decimal" v-model="f.locCautionSD"><span class="sub unit">SD 초과</span></div>
-      <div class="row xs sub">접속지점으로 지정한 위치(±1.5×분해능)는 국부신호 판정에서 뺍니다.</div>
+      <div class="row xs sub" style="display:block">평균·SD는 접속지점 반사(앞뒤 ±1.5×분해능부터 반사 곡선이 끝나는 첫 골까지, 최대 ±3×분해능)를 뺀 케이블 구간에서 다시 계산합니다 (LIRA와 같은 [2×분해능, 0.9×긍장] 구간, 평균 ±1.5 SD 밖 값 1회 제외). 그래서 접속개소가 많아도 기준이 올라가지 않습니다. 접속지점 반사와 근단·종단 반사의 꼬리는 국부신호를 찾는 구간에서도 뺍니다. Signature 화면의 Variance와는 무관합니다.</div>
       <div class="row bold small">접속지점 <span class="sub xs" style="font-weight:400">(Signature 뷰어에서 지정)</span></div>
       <div class="field"><label><span class="chip yellow">관심</span></label><input class="input mono crit" inputmode="decimal" v-model="f.jointWatchDB"><span class="sub unit">dB 이상</span></div>
       <div class="field"><label><span class="chip rose">주의</span></label><input class="input mono crit" inputmode="decimal" v-model="f.jointCautionDB"><span class="sub unit">dB 이상</span></div>
-      <div class="row xs sub" style="display:block">접속지점 신호(감쇠 보정 후 반사 크기)를 ① 같은 접속개소의 다른 상 ② 같은 상의 다른 접속개소와 비교해, 각 중앙값보다 큰 정도 중 큰 값으로 판정합니다. +6 dB = 반사 크기 2배, +10 dB ≈ 3배. 0 dB 기준선 아래(신호 없음)는 판정하지 않습니다.</div>
+      <div class="row xs sub" style="display:block">접속지점 신호(감쇠 보정 후 반사 크기)를 ① 같은 접속개소의 다른 상 ② 같은 상의 다른 접속개소와 비교해, 각 중앙값보다 큰 정도 중 큰 값으로 판정합니다. +6 dB = 반사 크기 2배, +10 dB ≈ 3배. 케이블 평균 + 1 SD 아래(신호 없음)는 판정하지 않습니다.</div>
       <div class="row xs" v-if="critValid" style="color:var(--red)">{{ critValid }}</div>
       <div class="row btnrow">
         <button class="btn small" @click="critDefaults">기본값</button>
