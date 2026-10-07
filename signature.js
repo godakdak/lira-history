@@ -8,7 +8,7 @@ export const allPhases = ['A', 'B', 'C', 'N'];
 // 스펙트럼 (주파수 - 임피던스 위상)
 
 /** 파일 버전 — app.js와 같아야 한다 (일부 파일만 올리면 화면에 경고) */
-export const VERSION = '0.5';
+export const VERSION = '0.6';
 
 export class SpectrumParseError extends Error {}
 

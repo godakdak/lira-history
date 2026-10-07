@@ -4,7 +4,7 @@
 // 화면 코드는 이 계층의 함수만 사용하므로, 나중에 한전 서버로 옮길 때 이 파일만 바꾸면 된다.
 
 const BUCKET = 'lira';
-export const VERSION = '0.5';
+export const VERSION = '0.6';
 
 export async function createStore(cfg) {
   if (cfg && cfg.SUPABASE_URL && cfg.SUPABASE_KEY && window.supabase) {

@@ -1,11 +1,11 @@
-// LIRA 진단이력 — 웹 버전 (Swift Playgrounds 데모와 같은 동작)
+// LIRA 진단이력 — 웹 버전 (iPad Swift Playgrounds 앱은 이 화면을 그대로 띄우고 사진·파일·위치를 연결)
 // 데이터는 store.js를 통해 중앙 저장소(Supabase) 또는 이 브라우저(로컬 모드)에 저장된다.
 
-import * as Sig from './signature.js?v=0.5';
-import * as Lira from './lira.js?v=0.5';
-import * as Store from './store.js?v=0.5';
+import * as Sig from './signature.js?v=0.6';
+import * as Lira from './lira.js?v=0.6';
+import * as Store from './store.js?v=0.6';
 
-const APP_VERSION = '0.5';
+const APP_VERSION = '0.6';
 /** 일부 파일만 새로 올렸거나 브라우저가 옛 파일을 쓰고 있으면 알린다 */
 const VERSION_PROBLEM = [['signature.js', Sig.VERSION], ['lira.js', Lira.VERSION], ['store.js', Store.VERSION]]
   .filter(([, v]) => v !== APP_VERSION).map(([n, v]) => `${n}(${v || '이전 버전'})`).join(', ');
@@ -270,6 +270,26 @@ function switchTab(t) {
 }
 
 // ===========================================================================
+// iPad 앱(Swift Playgrounds)이 넣어 주는 연결 — 일반 브라우저에서는 없음(null)
+//  pickPhotos(max) → [{ name, type, b64, meta: { lat, lon, alt, hAcc, heading, takenAt, make, model, width, height, gpsSource } }]
+//  pickFiles()     → [{ name, type, b64 }]          readClipboard() → 문자열
+//  saveFile(name, mime, b64)                        (위치는 navigator.geolocation을 앱이 대신 처리)
+const NATIVE = window.LIRA_NATIVE || null;
+function b64ToFile(b64, name, type) {
+  const bin = atob(b64 || ''), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new File([u], name || 'file', { type: type || 'application/octet-stream' });
+}
+function blobToB64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+// ===========================================================================
 // 위치·사진
 
 function deviceLocation(timeout = 10000) {
@@ -297,8 +317,8 @@ function toJpeg(img, maxSide, quality) {
   c.getContext('2d').drawImage(img, 0, 0, w, h);
   return new Promise(res => c.toBlob(b => res(b), 'image/jpeg', quality));
 }
-/** 사진 파일 → 메타데이터(EXIF·GPS) + 저장용 JPEG(긴 변 1600) + 썸네일 */
-async function ingestFile(file, source, deviceLoc) {
+/** 사진 파일 → 메타데이터(EXIF·GPS) + 저장용 JPEG(긴 변 1600) + 썸네일. nativeMeta = iPad 앱이 읽어 준 원본 사진 정보 */
+async function ingestFile(file, source, deviceLoc, nativeMeta = null) {
   const meta = { gpsSource: '없음', originalName: file.name };
   try {
     const ex = window.exifr ? await window.exifr.parse(file, { tiff: true, exif: true, gps: true }) : null;
@@ -316,6 +336,20 @@ async function ingestFile(file, source, deviceLoc) {
       }
     }
   } catch { /* EXIF 없음 */ }
+  if (nativeMeta) {
+    const n = nativeMeta, num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    if (!meta.make && n.make) meta.make = String(n.make).trim();
+    if (!meta.model && n.model) meta.model = String(n.model).trim();
+    if (!meta.takenAt && n.takenAt && !isNaN(new Date(n.takenAt))) meta.takenAt = new Date(n.takenAt).toISOString();
+    if (!meta.location && num(n.lat) != null && num(n.lon) != null) {
+      meta.location = { lat: n.lat, lon: n.lon };
+      meta.gpsSource = n.gpsSource || '사진 EXIF';
+      if (num(n.alt) != null) meta.altitude = n.alt;
+      if (num(n.hAcc) != null) meta.hAccuracy = n.hAcc;
+      if (num(n.heading) != null) meta.heading = n.heading;
+    }
+    if (n.originalName) meta.originalName = n.originalName;
+  }
   if (source === '카메라') {
     if (!meta.takenAt) meta.takenAt = nowISO();
     if (!meta.location && deviceLoc) {
@@ -326,7 +360,7 @@ async function ingestFile(file, source, deviceLoc) {
     }
   }
   const img = await loadImage(file);
-  meta.width = img.naturalWidth; meta.height = img.naturalHeight;
+  meta.width = nativeMeta?.width || img.naturalWidth; meta.height = nativeMeta?.height || img.naturalHeight;
   const full = await toJpeg(img, 1600, 0.85);
   const thumb = await toJpeg(img, 360, 0.75);
   return { id: uuid(), meta, full, thumb, preview: URL.createObjectURL(thumb), source };
@@ -584,7 +618,11 @@ function loadSpectrum(path) {
 }
 
 // 내보내기
-function download(name, blob) {
+async function download(name, blob) {
+  if (NATIVE?.saveFile) {   // iPad 앱: 공유 시트(파일에 저장·메일·AirDrop)
+    try { await NATIVE.saveFile(name, blob.type || 'application/octet-stream', await blobToB64(blob)); } catch (e) { reportError(e); }
+    return;
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
@@ -713,17 +751,25 @@ const PhotoAdd = {
   emits: ['add'],
   data: () => ({ busy: false }),
   methods: {
-    pickLib() { this.$refs.lib.click(); },
+    async pickLib() {
+      if (!NATIVE?.pickPhotos) { this.$refs.lib.click(); return; }
+      // iPad 앱: 사진 앱에서 고른 사진의 원본 위치·촬영 일시를 함께 받는다
+      let list;
+      try { list = await NATIVE.pickPhotos(this.max); } catch (e) { reportError(e); return; }
+      if (list && list.length) await this.ingest(list.map(x => b64ToFile(x.b64, x.name, x.type)), '보관함', list.map(x => x.meta || null));
+    },
     async pickCam() { deviceLocation(8000); this.$refs.cam.click(); },
     async onFiles(ev, source) {
       const files = [...ev.target.files].slice(0, this.max);
       ev.target.value = '';
-      if (!files.length) return;
+      if (files.length) await this.ingest(files, source, []);
+    },
+    async ingest(files, source, metas) {
       this.busy = true;
       const out = [];
       const loc = source === '카메라' ? (state.lastLoc || await deviceLocation(6000)) : null;
-      for (const f of files) {
-        try { out.push(await ingestFile(f, source, loc)); } catch (e) { reportError(e); }
+      for (let i = 0; i < files.length && i < this.max; i++) {
+        try { out.push(await ingestFile(files[i], source, loc, metas[i] || null)); } catch (e) { reportError(e); }
       }
       this.busy = false;
       if (out.length) this.$emit('add', out);
@@ -2173,7 +2219,14 @@ const DiagView = {
       if (this.site && !isConfirmed(this.site.locSource)) await A.confirmSiteLocation(this.site.id, repPhotoOf(this.d));
     },
     addSigs(ph, imgs) { A.addSignatures(imgs, this.id, ph, defaultStage(this.d)); },
-    pickFiles(target) { this.importTarget = target; this.$refs.files.click(); },
+    async pickFiles(target) {
+      this.importTarget = target;
+      if (!NATIVE?.pickFiles) { this.$refs.files.click(); return; }
+      // iPad 앱: 파일 앱(USB·iCloud·네트워크 드라이브)에서 .lira 등 여러 개 선택
+      let list;
+      try { list = await NATIVE.pickFiles(); } catch (e) { reportError(e); return; }
+      if (list && list.length) this.importFiles(list.map(f => b64ToFile(f.b64, f.name, f.type)), target || '*');
+    },
     onFiles(ev) { const files = [...ev.target.files]; ev.target.value = ''; this.importFiles(files, this.importTarget || '*'); },
     onDrop(ev) { this.dragOver = false; const files = [...(ev.dataTransfer?.files || [])]; if (files.length) this.importFiles(files, '*'); },
     async importFiles(files, target) {
@@ -2204,7 +2257,10 @@ const DiagView = {
     /** 클립보드 읽기: 브라우저가 허용하면 바로, 아니면 붙여넣기 창 */
     async readClipboard() {
       try {
-        if (navigator.clipboard && navigator.clipboard.readText) {
+        if (NATIVE?.readClipboard) {
+          const t = await NATIVE.readClipboard();
+          if (t && t.trim()) return t;
+        } else if (navigator.clipboard && navigator.clipboard.readText) {
           const t = await navigator.clipboard.readText();
           if (t && t.trim()) return t;
         }
@@ -2514,6 +2570,7 @@ const SettingsView = {
     critMissing() { return state.mode === 'supabase' && state.criteriaMissing; },
     spectraCount() { return state.diagnoses.reduce((n, d) => n + d.results.filter(r => r.spectrum).length, 0); },
     appVersion: () => APP_VERSION,
+    nativeText: () => (NATIVE ? `iPad 앱 ${NATIVE.version || ''}`.trim() : ''),
     operator: { get() { return state.operator; }, set(v) { state.operator = v; ls.set('operatorName', v); } },
     counts() {
       const photos = state.diagnoses.reduce((n, d) => n + d.photos.length + d.results.reduce((m, r) => m + r.signatures.length, 0), 0);
@@ -2613,7 +2670,7 @@ const SettingsView = {
     <div class="sec"><div class="card"><div class="row"><button class="linkbtn danger" @click="reset">예시 데이터로 초기화</button></div></div>
       <div class="sec-f">{{ mode === 'supabase' ? '중앙 저장소의 모든 입력 데이터가 삭제되고 이관 자료만 남습니다. 시연 준비용입니다.' : '입력한 모든 진단과 사진이 삭제되고 이관 자료만 남습니다.' }}</div></div>
     <div class="sec"><div class="sec-h">앱 정보</div><div class="card">
-      <div class="kv"><span class="k">버전</span><span class="v">{{ appVersion }} (웹 데모)</span></div>
+      <div class="kv"><span class="k">버전</span><span class="v">{{ appVersion }} ({{ nativeText || '웹 데모' }})</span></div>
       <div class="kv"><span class="k">제작</span><span class="v">(주)액트투</span></div>
     </div></div>
   </div>`,
