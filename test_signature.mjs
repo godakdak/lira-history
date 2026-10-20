@@ -46,7 +46,7 @@ test('고대역 내부 반사가 강해져도 기준 종단은 바뀌지 않는�
 
 test('종단 정보가 없는 평탄 입력은 자동 판정을 만들지 않는다',()=>{
   const s=S.makeSpectrum('flat',2500,2500,new Float64Array(10000));
-  assert.equal(S.terminalAnchor(s,'4 Term B-H',954),null);
+  assert.equal(S.terminalAnchor(s,'4 Term B-H',954).status,'unresolved');
 });
 
 test('0 Hz 보충에 따른 위상 회전은 첫 측정 표본 원점을 사용한다',()=>{

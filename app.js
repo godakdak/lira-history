@@ -1,12 +1,12 @@
 // LIRA 진단이력 — 웹 버전 (iPad Swift Playgrounds 앱은 이 화면을 그대로 띄우고 사진·파일·위치를 연결)
 // 데이터는 store.js를 통해 중앙 저장소(Supabase) 또는 이 브라우저(로컬 모드)에 저장된다.
 
-import * as Sig from './signature.js?v=0.8';
-import * as Lira from './lira.js?v=0.8';
-import * as Store from './store.js?v=0.8';
-import {createAnalysisMetadata, mapCableDistance} from './analysis-support.js?v=0.8';
+import * as Sig from './signature.js?v=0.9';
+import * as Lira from './lira.js?v=0.9';
+import * as Store from './store.js?v=0.9';
+import {createAnalysisMetadata, mapCableDistance} from './analysis-support.js?v=0.9';
 
-const APP_VERSION = '0.8';
+const APP_VERSION = '0.9';
 /** 일부 파일만 새로 올렸거나 브라우저가 옛 파일을 쓰고 있으면 알린다 */
 const VERSION_PROBLEM = [['signature.js', Sig.VERSION], ['lira.js', Lira.VERSION], ['store.js', Store.VERSION]]
   .filter(([, v]) => v !== APP_VERSION).map(([n, v]) => `${n}(${v || '이전 버전'})`).join(', ');
@@ -997,7 +997,7 @@ const SignatureChart = {
       if (this.lengthMarker && this.lengthMarker <= xMax) {
         ctx.save(); ctx.setLineDash([4, 3]); ctx.globalAlpha = 0.7; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(px(this.lengthMarker), pr.y); ctx.lineTo(px(this.lengthMarker), pr.y + pr.h); ctx.stroke(); ctx.restore();
-        ctx.textAlign = 'right'; ctx.fillText(`종단 ${this.lengthMarker.toFixed(2)} m`, px(this.lengthMarker) - 3, pr.y + 2);
+        ctx.textAlign = 'right'; ctx.fillText(`분석 길이 ${this.lengthMarker.toFixed(2)} m`, px(this.lengthMarker) - 3, pr.y + 2);
       }
       // 접속지점 (제외 범위 음영 + 점선)
       if (this.joints.length) {
@@ -1268,7 +1268,7 @@ const SignatureCompare = {
           if (grade) parts.unshift(`국부신호 ${grade.label}` + (grade.key !== 'good' ? ` (${Math.round(rev ? L - m.atM : m.atM)} m 부근)` : ''));
           const validJoints=own.filter(x=>x!=null).length;
           if (stat) parts.splice(grade ? 1 : 0, 0, `국부신호 기준 SD ${stat.sd.toFixed(1)} dB` + (validJoints ? `(접속지점 ${validJoints}곳 제외)` : ''));
-          parts.push(`감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB`);
+          parts.push(`검출 종단 ${norm.endDistance.toFixed(2)} m · 감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB`);
           parts.push(`기준선 ${norm.source}`);
         } else if (this.normalize) parts.push('종단 미확정: 원 신호 표시');
         parts.push(src.ref.label || src.ref.originalName);
@@ -1276,7 +1276,7 @@ const SignatureCompare = {
         out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), nt: nt && markRaw(nt), jl, stat, zero: norm ? norm.zeroDB : null, exD,
           raw:markRaw(r),norm: norm&&markRaw(norm),offset:dnormOffset(src.ref),reversed:rev,anchor,length:L,
           sourceFile:src.ref.originalName||src.ref.fileName,
-          peaks:norm?Sig.dnormPeaks(r,norm,L,dnormOffset(src.ref)):[],
+          peaks:norm?Sig.dnormPeaks(r,norm,Math.min(L,norm.endDistance),dnormOffset(src.ref)):[],
           date: src.diag.date, vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
       });
       this.curves = out;
@@ -1465,9 +1465,9 @@ function autoTerminal(data, ref, length, windowName, bandwidthHz, mode='saved',f
     analysisLength:l.analysisLength??l.length,masterMode:l.masterMode,
     peakTolerancePct:l.peakTolerancePct,algorithm:l.algorithm,mode,fixedVR};
   const referenceLength=options.analysisLength??length;
-  const key=JSON.stringify([referenceLength,windowName,l.bandHz,l.vr,l.peakTolerancePct]);
-  if(!cache.has(key))cache.set(key,Sig.terminalAnchor(data,windowName,referenceLength,{
-    referenceBandwidthHz:l.bandHz,savedVR:l.vr,peakTolerancePct:l.peakTolerancePct,geometryMode:true}));
+  const key=JSON.stringify([referenceLength,windowName,l.bandHz,l.vr,l.peakTolerancePct,l.windowCode,l.masterMode,l.algorithm,mode]);
+  options.referenceWindowName=l.windowCode==null?windowName:Sig.savedWindowName(l.windowCode);
+  if(!cache.has(key))cache.set(key,Sig.resolveAnalysisGeometry(data,windowName,length,{...options,bandwidthHz:l.bandHz}).anchor);
   return Sig.resolveAnalysisGeometry(data,windowName,length,{...options,bandwidthHz,anchor:cache.get(key)});
 }
 function dnormOffset(ref) {
@@ -1476,18 +1476,18 @@ function dnormOffset(ref) {
 }
 function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed, variance = null, exclude = [], terminalDistance = null,suppressNormalization=false }) {
   const L = length || null;
-  const r = Sig.computeSignature(data, bwHz, windowName, vr, Math.max(xMax, L || 0) * 1.02);
+  const r = Sig.computeSignature(data, bwHz, windowName, vr, Math.max(xMax, L || 0, terminalDistance||0) * 1.05);
   let norm = suppressNormalization?null:Sig.makeNormalization(r, L, variance ?? 1, terminalDistance);
   const meta=analysisMeta(ref),ln=meta.norm,lbw=meta.bandHz;
   const savedLength=meta.analysisLength??meta.length,savedVR=meta.vr;
   const sameGeometry=savedLength>0&&savedVR>0&&Math.abs(L/savedLength-1)<.001&&Math.abs(vr/savedVR-1)<.001;
-  if (norm && ln && lbw && Math.abs(bwHz-lbw)<=data.df && sameGeometry && windowName === '4 Term B-H') {
+  if (norm && ln && ref?.raw?.some(p=>/\.pbd$/i.test(p)) && lbw && Math.abs(bwHz-lbw)<=data.df && sameGeometry && windowName === Sig.savedWindowName(meta.windowCode)) {
     const sd = ln.sd ?? norm.sd, sig0 = ln.sd != null ? (ln.sigma ?? 1) : 1;
     const intercept = ln.zero - sig0 * sd, v = variance ?? sig0;
     norm = { ...norm, slope: ln.slope, intercept, sd, sigma: v, zeroDB: intercept + v * sd, source: 'LIRA 분석값' };
   }
   const ex = norm && L ? Sig.reflectionIntervals(r, norm.slope, exclude, JOINT_EXCLUDE * r.resolutionM, JOINT_EXCLUDE_MAX * r.resolutionM) : [];
-  const stat = norm && L ? Sig.cableStats(r, norm.slope, L, ex) : null;
+  const stat = norm && L ? Sig.cableStats(r, norm.slope, Math.min(L,terminalDistance??L), ex) : null;
   return { r, norm, stat, ex, trace: Sig.displayTrace(r, norm, normalize, reversed, L, xMax) };
 }
 
@@ -1509,7 +1509,7 @@ function analysisFor(site, ref, data) {
 // ---------------------------------------------------------------------------
 // 판정 계산: 국부신호(접속지점 제외) · 접속지점(상간·개소간 비교)
 
-const EVAL_VERSION = 'e8-len-vr-mode';
+const EVAL_VERSION = 'e9-terminal-v2';
 const JOINT_EXCLUDE = 1.5;     // 접속지점 앞뒤 최소 ±1.5×분해능은 국부신호에서 제외
 const JOINT_EXCLUDE_MAX = 3;   // 반사 꼬리가 이어지면 첫 골까지, 최대 ±3×분해능
 const END_EXCLUDE = 2, END_EXCLUDE_MAX = 4;   // 근단·종단 반사: 최소 2, 최대 4×분해능
@@ -1551,6 +1551,7 @@ function searchRange(r, slope, L) {
 function localMetric(c, L) {
   const { r, norm, stat } = c, ex = c.ex || [];
   if (!norm || !stat || !(L > 0) || !(stat.sd > 0)) return null;
+  L=Math.min(L,norm.endDistance??L);
   const [a, b] = searchRange(r, norm.slope, L);
   if (b - a < 0.2 * L) return null;
   let maxK = -Infinity, at = null;

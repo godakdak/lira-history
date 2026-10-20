@@ -5,9 +5,9 @@
 //  - 완주 SW1001 2024-01-23 A·B·C상 (LIRA CS 6.4.1, 프로브 보정 ON): .pbd 프로브 보정을 적용하면
 //    Signature가 .sdt NOT Normalized와 중앙값 0.00~0.04 dB (보정 없이는 −4 dB, 모양도 다름).
 
-import { makeSpectrum } from './signature.js?v=0.8';
+import { makeSpectrum } from './signature.js?v=0.9';
 
-export const VERSION = '0.8';
+export const VERSION = '0.9';
 
 /** .lira: 헤더 + [N, 주파수 float32 BE] + [N, 실수부] + [N, 허수부] */
 export function parseLiraBinary(buf) {
@@ -129,6 +129,7 @@ export function readAnl(text) {
     length: num(an.SegLen0) ?? num(op.Length),
     masterMode: num(an.MasterMode),
     peakTolerancePct: num(hs.tolerance),
+    windowCode: num(hs.window),
     algorithm:an.Algorithm==null?true:!['false','0'].includes(String(an.Algorithm).toLowerCase()),
     bandPct: num(imp.band),
     vr: num(an.SegVR0),

@@ -8,7 +8,7 @@ export function createAnalysisMetadata(loadAnl) {
       if (refs.has(ref)) return this.get(ref);
       const old = ref?.lira ?? {};
       const path = ref?.raw?.find(p => /\.anl$/i.test(p));
-      if (!path || (old.masterMode != null && old.analysisLength != null)) {
+      if (!path || (old.masterMode != null && old.analysisLength != null && old.windowCode != null)) {
         refs.set(ref, old);
         return old;
       }
@@ -20,7 +20,7 @@ export function createAnalysisMetadata(loadAnl) {
           analysisLength:a.analysisLength??old.analysisLength??old.length,
           length:a.length??old.length, masterMode:a.masterMode??old.masterMode,
           peakTolerancePct:a.peakTolerancePct??old.peakTolerancePct,
-          algorithm:a.algorithm??old.algorithm,
+          algorithm:a.algorithm??old.algorithm, windowCode:a.windowCode??old.windowCode,
           vr:a.vr??old.vr, bandHz:a.bandPct*a.maxFreqMHz*1e4||old.bandHz};
         refs.set(ref, merged);
         warnings.delete(ref);

@@ -8,7 +8,7 @@ export const allPhases = ['A', 'B', 'C', 'N'];
 // 스펙트럼 (주파수 - 임피던스 위상)
 
 /** 파일 버전 — app.js와 같아야 한다 (일부 파일만 올리면 화면에 경고) */
-export const VERSION = '0.8';
+export const VERSION = '0.9';
 
 export class SpectrumParseError extends Error {}
 
@@ -98,13 +98,19 @@ export function measuredAtFromLabel(label) {
 
 export const WINDOWS = ['4 Term B-H', 'Exact Blackman', 'Hamming'];
 
+// GenRadar HotSpotWindow 열거형. 저장 창을 현재 표시 창으로 대체하지 않는다.
+export const savedWindowName = code => ({0:'None',1:'Hanning',2:'Hamming',4:'Exact Blackman',5:'Blackman',7:'4 Term B-H'}[code] ?? null);
+
 export function windowCoefficients(name, n) {
   const w = new Float64Array(n);
   if (n <= 1) { w.fill(1); return w; }
   const m = n - 1;
   for (let k = 0; k < n; k++) {
     const x = 2 * Math.PI * k / m;
-    if (name === 'Exact Blackman') w[k] = 0.42659071 - 0.49656062 * Math.cos(x) + 0.07684867 * Math.cos(2 * x);
+    if (name === 'None') w[k] = 1;
+    else if (name === 'Hanning') w[k] = .5 - .5 * Math.cos(x);
+    else if (name === 'Blackman') w[k] = .42 - .5 * Math.cos(x) + .08 * Math.cos(2*x);
+    else if (name === 'Exact Blackman') w[k] = 0.42659071 - 0.49656062 * Math.cos(x) + 0.07684867 * Math.cos(2 * x);
     else if (name === 'Hamming') w[k] = 0.54 - 0.46 * Math.cos(x);
     else w[k] = 0.35875 - 0.48829 * Math.cos(x) + 0.14128 * Math.cos(2 * x) - 0.01168 * Math.cos(3 * x);
   }
@@ -218,73 +224,82 @@ export function computeSignature(s, bandwidthHz, windowName, vr, maxDistance) {
   };
 }
 
-/** 표시 대역에 독립적인 자동 종단 기준. 대역 조절마다 전체 최대 피크를 새로 고르지 않는다. */
-export function terminalAnchor(s, windowName, length, options = {}) {
-  if (!(length > 0)) return null;
-  const referenceHz = Math.min(options.referenceBandwidthHz || guidelineBandwidthMHz(length)*1e6, s.maxFreq);
-  const saved = options.savedVR;
-  const prior = Number.isFinite(saved) && saved >= .3 && saved <= .9 ? saved : null;
-  const r = computeSignature(s, referenceHz, windowName, 1, length/.3*1.05);
-  const expected = prior ? length/prior : null;
-  const tolerance = Number.isFinite(options.peakTolerancePct) && options.peakTolerancePct > 0
-    ? Math.min(options.peakTolerancePct/100,1) : .20;
-  const halfWidth = expected ? (options.geometryMode ? expected*tolerance : Math.max(expected*.03, r.resolutionM)) : 0;
-  const low = expected ? Math.max(length/.9, expected-halfWidth) : length/.9;
-  const high = expected ? Math.min(length/.3, expected+halfWidth) : length/.3;
-  let peaks=[];
-  for(let i=Math.max(1,Math.ceil(low/r.step));i<Math.min(r.values.length-1,Math.floor(high/r.step));i++) {
-    if(r.values[i]>r.values[i-1] && r.values[i]>=r.values[i+1]) peaks.push(i);
+/** 지연 거리(c·왕복지연/2)에서 국소 최대만 검출한다. 경계 절단값은 후보가 아니다. */
+export function terminalCandidates(r, low, high) {
+  const peaks=[];
+  for(let i=Math.max(1,Math.ceil(low/r.step));i<=Math.min(r.values.length-2,Math.floor(high/r.step));i++) {
+    const a=r.values[i-1],b=r.values[i],c=r.values[i+1];
+    if(!(b>a && b>=c))continue;
+    const den=a-2*b+c,shift=den?Math.max(-.5,Math.min(.5,.5*(a-c)/den)):0;
+    peaks.push({delayDistance:(i+shift)*r.step,peakDB:b-.25*(a-c)*shift});
   }
-  if(!peaks.length || r.resolutionM > length/.3-length/.9) return null;
-  // 저장된 종단이 분해되어 있으면 그 군집을 먼저 유지한다. 허용폭 안의
-  // 별도 내부 반사가 더 크다는 이유로 이미 저장한 종단을 바꾸지 않는다.
-  // 가까운 피크가 없을 때만 ANL tolerance 전체의 후보를 검토한다.
-  if (prior && options.geometryMode) {
-    const identityRadius=Math.min(halfWidth,Math.max(expected*.03,r.resolutionM));
-    const sameEndpoint=peaks.filter(i=>Math.abs(i*r.step-expected)<=identityRadius);
-    if(sameEndpoint.length)peaks=sameEndpoint;
-  }
-  peaks.sort((a,b)=>r.values[b]-r.values[a]);
-  const i=peaks[0], [a,b,c]=[r.values[i-1],r.values[i],r.values[i+1]];
-  const den=a-2*b+c, shift=den?Math.max(-.5,Math.min(.5,.5*(a-c)/den)):0;
-  const delayDistance=(i+shift)*r.step;
-  const competitor=peaks.find(j=>Math.abs(j-i)*r.step>r.resolutionM);
-  const marginDB=competitor==null?null:b-r.values[competitor];
-  return { vr:length/delayDistance, delayDistance, referenceBandwidthHz:r.bandwidthHz,
-    referenceResolutionM:r.resolutionM,
-    savedVR:prior, geometryMode:!!options.geometryMode,peakTolerancePct:tolerance*100,
-    status:!prior && marginDB!=null && marginDB<3?'ambiguous':'candidate',
-    competingPeak:marginDB!=null&&marginDB<3,
-    marginDB, method:prior?'saved_vr_neighborhood_at_reference_band':'maximum_at_reference_band',
-    note:'자동 기준 대역의 종단을 유지합니다. 실제 종단 여부는 측정 조건과 함께 확인해야 합니다.' };
+  return peaks.sort((a,b)=>b.peakDB-a.peakDB || a.delayDistance-b.delayDistance);
 }
 
-/** 기준 종단 주변만 추적하여 현재 대역의 미세한 지연 변화에 VR을 자동 보정한다.
- * 내부 반사 전체에서 최댓값을 다시 고르는 경로와 달리 기준 종단의 정체성을 유지한다.
- */
-export function terminalAtBand(s, bandwidthHz, windowName, length, anchor) {
-  if(!anchor || anchor.status==='ambiguous') return anchor;
-  const r=computeSignature(s,bandwidthHz,windowName,1,length/.3*1.05);
-  const expected=anchor.delayDistance;
-  const radius=anchor.geometryMode
-    ? Math.min(expected*(anchor.peakTolerancePct??20)/100,Math.max(expected*.03,anchor.referenceResolutionM,r.resolutionM))
-    : Math.min(expected*.03,Math.max(anchor.referenceResolutionM,r.resolutionM));
-  if(r.resolutionM>expected*(anchor.geometryMode ? .8 : .1)) return {...anchor,status:'unresolved',note:'현재 대역의 종단 분해능이 부족합니다.'};
-  const peaks=[];
-  for(let i=Math.max(1,Math.ceil((expected-radius)/r.step));i<Math.min(r.values.length-1,Math.floor((expected+radius)/r.step));i++) {
-    if(r.values[i]>r.values[i-1] && r.values[i]>=r.values[i+1]) peaks.push(i);
+/** 저장 대역·저장 창에서 기준 후보를 잡는다. 수동 모드의 고정 길이는 종단 위치가 아니다. */
+export function terminalAnchor(s, windowName, length, options = {}) {
+  if (!(length > 0)) return null;
+  const referenceWindow=options.referenceWindowName??windowName;
+  const referenceHz=Math.min(options.referenceBandwidthHz||guidelineBandwidthMHz(length)*1e6,s.maxFreq);
+  const prior=Number.isFinite(options.savedVR)&&options.savedVR>=.05&&options.savedVR<=1?options.savedVR:null;
+  const expected=prior?length/prior:null;
+  const tolerance=(options.peakTolerancePct??20)/100;
+  if(!Number.isFinite(tolerance)||tolerance<=0||tolerance>1)return {status:'unresolved',note:'종단 허용 범위 tolerance는 0~100% 사이여야 합니다.'};
+  const maxDistance=Math.max(length/.3,expected?expected*(1+tolerance):0)*1.05;
+  const r=computeSignature(s,referenceHz,referenceWindow,1,maxDistance);
+  const halfWidth=expected?(options.geometryMode?expected*tolerance:Math.max(expected*.03,r.resolutionM)):0;
+  const low=expected?Math.max(r.step,expected-halfWidth):length/.9;
+  const high=expected?expected+halfWidth:length/.3;
+  const candidates=terminalCandidates(r,low,high);
+  const common={referenceBandwidthHz:r.bandwidthHz,referenceWindowName:referenceWindow,
+    referenceResolutionM:r.resolutionM,savedVR:prior,geometryMode:!!options.geometryMode,
+    peakTolerancePct:tolerance*100,analysisMode:options.analysisMode??'length',candidates,
+    policy:'terminal-v2',searchLow:low,searchHigh:high};
+  if(high>(r.values.length-2)*r.step)return {...common,status:'unresolved',note:'종단 탐색 범위가 측정 주파수 간격의 거리 한계를 넘습니다.'};
+  if(!candidates.length||r.resolutionM>high-low)return {...common,status:'unresolved',note:'저장 조건의 종단 후보를 분해하지 못했습니다.'};
+  let peaks=candidates;
+  let selection=common.analysisMode==='manual'?'manual_full_tolerance':'full_tolerance_fallback';
+  if(prior && options.geometryMode && common.analysisMode!=='manual') {
+    const radius=Math.min(halfWidth,Math.max(expected*.03,r.resolutionM));
+    const near=peaks.filter(p=>Math.abs(p.delayDistance-expected)<=radius && p.peakDB>=peaks[0].peakDB-20);
+    if(near.length){peaks=near;selection='saved_neighborhood';}
   }
-  if(!peaks.length) return {...anchor,status:'unresolved',note:'기준 종단 주변에서 현재 대역 피크를 찾지 못했습니다.'};
-  peaks.sort((a,b)=>r.values[b]-r.values[a]);
-  const i=peaks[0],a=r.values[i-1],b=r.values[i],c=r.values[i+1];
-  // 기준 대역에서 한 종단으로 분해되던 다중 봉우리는 같은 군집으로 취급한다.
-  const competitor=peaks.find(j=>Math.abs(j-i)*r.step>Math.max(r.resolutionM,anchor.referenceResolutionM));
-  if(competitor!=null && b-r.values[competitor]<3) return {...anchor,status:'ambiguous',note:'기준 종단 주변에 비슷한 피크 군집이 여러 개 있습니다.'};
-  const den=a-2*b+c,shift=den?Math.max(-.5,Math.min(.5,.5*(a-c)/den)):0;
-  const currentDelayDistance=(i+shift)*r.step;
-  return {...anchor,vr:length/currentDelayDistance,currentDelayDistance,
-    trackingBandHz:r.bandwidthHz,trackingShiftM:currentDelayDistance-expected,
-    status:'tracked',method:anchor.method+'+bounded_band_tracking'};
+  const best=peaks[0],competitor=peaks.find(p=>Math.abs(p.delayDistance-best.delayDistance)>r.resolutionM);
+  const marginDB=competitor?best.peakDB-competitor.peakDB:null;
+  const ambiguous=marginDB!=null&&marginDB<3;
+  return {...common,...best,selection,vr:length/best.delayDistance,marginDB,competingPeak:ambiguous,
+    status:ambiguous?'ambiguous':'candidate',
+    method:selection,
+    note:ambiguous?'저장 조건에 비슷한 크기의 분리된 종단 후보가 있습니다.':'저장 조건에서 고른 종단 후보를 추적합니다.'};
+}
+
+/** 대역마다 기준점에서 독립적으로 추적한다. 슬라이더 조작 순서에 의존하지 않는다. */
+export function terminalAtBand(s, bandwidthHz, windowName, length, anchor) {
+  if(!anchor||anchor.status!=='candidate')return anchor;
+  const expected=anchor.delayDistance;
+  const maxDistance=Math.max(length/.3,expected*(1+(anchor.peakTolerancePct??20)/100))*1.05;
+  const r=computeSignature(s,bandwidthHz,windowName,1,maxDistance);
+  const radius=Math.min(expected*(anchor.peakTolerancePct??20)/100,
+    Math.max(expected*.03,anchor.referenceResolutionM,r.resolutionM));
+  const common={...anchor,trackingBandHz:r.bandwidthHz,trackingResolutionM:r.resolutionM};
+  if(expected+radius>(r.values.length-2)*r.step)return {...common,status:'unresolved',note:'현재 종단 탐색 범위가 측정 거리 한계를 넘습니다.'};
+  if(r.resolutionM>expected*.8)return {...common,status:'unresolved',note:'현재 대역의 종단 분해능이 부족합니다.'};
+  const peaks=terminalCandidates(r,expected-radius,expected+radius);
+  if(!peaks.length)return {...common,status:'unresolved',note:'기준 종단 주변에서 현재 대역 피크를 찾지 못했습니다.'};
+  const best=peaks[0],competitor=peaks.find(p=>Math.abs(p.delayDistance-best.delayDistance)>r.resolutionM);
+  const marginDB=competitor?best.peakDB-competitor.peakDB:null;
+  const result={...common,trackingCandidates:peaks,trackingMarginDB:marginDB,
+    trackingShiftM:best.delayDistance-expected};
+  const guard=terminalCandidates(r,Math.max(anchor.searchLow??0,expected-2*radius),Math.min(anchor.searchHigh??Infinity,expected+2*radius));
+  result.guardCandidates=guard;
+  if(guard.some(p=>Math.abs(p.delayDistance-expected)>radius&&p.peakDB>=best.peakDB-3))
+    return {...result,status:'ambiguous',note:'추적 반경 밖에 비슷하거나 더 큰 피크가 있어 종단 확인이 필요합니다.'};
+  // 저대역에서 합쳐졌던 봉우리도 현재 대역에서 분리되면 독립된 후보로 비교한다.
+  if(marginDB!=null&&marginDB<3)return {...result,status:'ambiguous',note:'현재 대역에 비슷한 크기의 분리된 종단 후보가 있습니다.'};
+  if(Math.abs(result.trackingShiftM)>Math.max(expected*.03,r.resolutionM))
+    return {...result,status:'ambiguous',note:'현재 피크가 기준 종단에서 벗어나 종단 확인이 필요합니다.'};
+  return {...result,vr:length/best.delayDistance,currentDelayDistance:best.delayDistance,
+    status:'tracked',method:anchor.method+'+resolved_peak_tracking'};
 }
 
 /**
@@ -306,22 +321,23 @@ export function resolveAnalysisGeometry(s, windowName, inputLength, options = {}
   const vr = positive(options.fixedVR) ? options.fixedVR : options.savedVR;
   const common = { inputLength, referenceLength, masterMode:masterMode??null, mode,
     modeSource:masterMode==null?'legacy_length_default':'saved_anl', length, vr };
+  if(options.referenceWindowName===null)return {...common,status:'unresolved',note:'저장 창 함수 확인이 필요합니다.'};
   if (!positive(length)) return {...common,status:'unresolved',note:'분석 길이가 없습니다.'};
   if (!['length','vr','manual'].includes(mode))
     return {...common,status:'unresolved',note:'CAP 모드는 정전용량 기반 속도 산정값 확인이 필요합니다.'};
   if (mode !== 'length' && !(Number.isFinite(vr) && vr >= .05 && vr <= 1))
     return {...common,status:'unresolved',note:'저장 VR 또는 직접 입력 VR이 필요합니다.'};
   const anchor = options.anchor ?? terminalAnchor(s,windowName,referenceLength,{
-    referenceBandwidthHz:options.referenceBandwidthHz,
+    referenceBandwidthHz:options.referenceBandwidthHz,referenceWindowName:options.referenceWindowName,analysisMode:mode,
     savedVR:options.savedVR ?? vr,geometryMode:true,peakTolerancePct:options.peakTolerancePct,
   });
   const tracked = terminalAtBand(s,options.bandwidthHz??options.referenceBandwidthHz??s.maxFreq,
     windowName,referenceLength,anchor);
   if ((!tracked || tracked.status !== 'tracked') && mode==='manual')
-    return {...common,anchor,status:'manual',terminalStatus:tracked?.status??'unresolved',
+    return {...common,anchor,terminalAudit:tracked,status:'manual',terminalStatus:tracked?.status??'unresolved',
       terminalDistance:null,note:'길이·VR 고정 파형입니다. 종단이 미확정되어 정규화와 DNORM은 표시하지 않습니다.'};
   if (!tracked || tracked.status !== 'tracked')
-    return {...common,anchor,status:tracked?.status??'unresolved',note:tracked?.note??'기준 종단 피크를 찾지 못했습니다.'};
+    return {...common,anchor,terminalAudit:tracked,status:tracked?.status??'unresolved',note:tracked?.note??'기준 종단 피크를 찾지 못했습니다.'};
   const delayDistance = tracked.currentDelayDistance;
   const effectiveVR = mode==='length' ? length/delayDistance : vr;
   const effectiveLength = mode==='vr' ? effectiveVR*delayDistance : length;
@@ -434,7 +450,7 @@ export function makeNormalization(r, length, variance = 1, terminalDistance = nu
   if (!(dEnd > 0)) return null;
   const slope = Math.max((FULL_REFLECTION_DB - peak) / dEnd, 0);
 
-  const st = cableStats(r, slope, length);
+  const st = cableStats(r, slope, Math.min(length,terminalDistance??length));
   if (!st) return null;
   const intercept = Math.min(st.mean, 0);
   return { endDistance: dEnd, endPeakDB: peak, slope, intercept, sd: st.sd, sigma: variance, zeroDB: intercept + variance * st.sd, source: '앱 추정' };
