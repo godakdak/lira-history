@@ -8,7 +8,7 @@ export const allPhases = ['A', 'B', 'C', 'N'];
 // 스펙트럼 (주파수 - 임피던스 위상)
 
 /** 파일 버전 — app.js와 같아야 한다 (일부 파일만 올리면 화면에 경고) */
-export const VERSION = '0.7';
+export const VERSION = '0.8';
 
 export class SpectrumParseError extends Error {}
 
@@ -226,14 +226,24 @@ export function terminalAnchor(s, windowName, length, options = {}) {
   const prior = Number.isFinite(saved) && saved >= .3 && saved <= .9 ? saved : null;
   const r = computeSignature(s, referenceHz, windowName, 1, length/.3*1.05);
   const expected = prior ? length/prior : null;
-  const halfWidth = expected ? Math.max(expected*.03, r.resolutionM) : 0;
+  const tolerance = Number.isFinite(options.peakTolerancePct) && options.peakTolerancePct > 0
+    ? Math.min(options.peakTolerancePct/100,1) : .20;
+  const halfWidth = expected ? (options.geometryMode ? expected*tolerance : Math.max(expected*.03, r.resolutionM)) : 0;
   const low = expected ? Math.max(length/.9, expected-halfWidth) : length/.9;
   const high = expected ? Math.min(length/.3, expected+halfWidth) : length/.3;
-  const peaks=[];
+  let peaks=[];
   for(let i=Math.max(1,Math.ceil(low/r.step));i<Math.min(r.values.length-1,Math.floor(high/r.step));i++) {
     if(r.values[i]>r.values[i-1] && r.values[i]>=r.values[i+1]) peaks.push(i);
   }
   if(!peaks.length || r.resolutionM > length/.3-length/.9) return null;
+  // 저장된 종단이 분해되어 있으면 그 군집을 먼저 유지한다. 허용폭 안의
+  // 별도 내부 반사가 더 크다는 이유로 이미 저장한 종단을 바꾸지 않는다.
+  // 가까운 피크가 없을 때만 ANL tolerance 전체의 후보를 검토한다.
+  if (prior && options.geometryMode) {
+    const identityRadius=Math.min(halfWidth,Math.max(expected*.03,r.resolutionM));
+    const sameEndpoint=peaks.filter(i=>Math.abs(i*r.step-expected)<=identityRadius);
+    if(sameEndpoint.length)peaks=sameEndpoint;
+  }
   peaks.sort((a,b)=>r.values[b]-r.values[a]);
   const i=peaks[0], [a,b,c]=[r.values[i-1],r.values[i],r.values[i+1]];
   const den=a-2*b+c, shift=den?Math.max(-.5,Math.min(.5,.5*(a-c)/den)):0;
@@ -242,7 +252,9 @@ export function terminalAnchor(s, windowName, length, options = {}) {
   const marginDB=competitor==null?null:b-r.values[competitor];
   return { vr:length/delayDistance, delayDistance, referenceBandwidthHz:r.bandwidthHz,
     referenceResolutionM:r.resolutionM,
-    savedVR:prior, status:!prior && marginDB!=null && marginDB<3?'ambiguous':'candidate',
+    savedVR:prior, geometryMode:!!options.geometryMode,peakTolerancePct:tolerance*100,
+    status:!prior && marginDB!=null && marginDB<3?'ambiguous':'candidate',
+    competingPeak:marginDB!=null&&marginDB<3,
     marginDB, method:prior?'saved_vr_neighborhood_at_reference_band':'maximum_at_reference_band',
     note:'자동 기준 대역의 종단을 유지합니다. 실제 종단 여부는 측정 조건과 함께 확인해야 합니다.' };
 }
@@ -254,8 +266,10 @@ export function terminalAtBand(s, bandwidthHz, windowName, length, anchor) {
   if(!anchor || anchor.status==='ambiguous') return anchor;
   const r=computeSignature(s,bandwidthHz,windowName,1,length/.3*1.05);
   const expected=anchor.delayDistance;
-  const radius=Math.min(expected*.03,Math.max(anchor.referenceResolutionM,r.resolutionM));
-  if(r.resolutionM>expected*.1) return {...anchor,status:'unresolved',note:'현재 대역의 종단 분해능이 부족합니다.'};
+  const radius=anchor.geometryMode
+    ? Math.min(expected*(anchor.peakTolerancePct??20)/100,Math.max(expected*.03,anchor.referenceResolutionM,r.resolutionM))
+    : Math.min(expected*.03,Math.max(anchor.referenceResolutionM,r.resolutionM));
+  if(r.resolutionM>expected*(anchor.geometryMode ? .8 : .1)) return {...anchor,status:'unresolved',note:'현재 대역의 종단 분해능이 부족합니다.'};
   const peaks=[];
   for(let i=Math.max(1,Math.ceil((expected-radius)/r.step));i<Math.min(r.values.length-1,Math.floor((expected+radius)/r.step));i++) {
     if(r.values[i]>r.values[i-1] && r.values[i]>=r.values[i+1]) peaks.push(i);
@@ -271,6 +285,51 @@ export function terminalAtBand(s, bandwidthHz, windowName, length, anchor) {
   return {...anchor,vr:length/currentDelayDistance,currentDelayDistance,
     trackingBandHz:r.bandwidthHz,trackingShiftM:currentDelayDistance-expected,
     status:'tracked',method:anchor.method+'+bounded_band_tracking'};
+}
+
+/**
+ * LIRA VelLenRel의 LEN/VR/수동 분기를 분리한다.
+ * delayDistance = c·왕복지연/2 이므로 LEN: VR=L/delayDistance,
+ * VR: L=VR·delayDistance. Operation.Length는 입력 정보로 보존한다.
+ * 종단 검출은 저장 분석 길이/VR의 지연 좌표에서 시작한다.
+ */
+export function resolveAnalysisGeometry(s, windowName, inputLength, options = {}) {
+  const positive = v => Number.isFinite(v) && v > 0;
+  const savedLength = positive(options.analysisLength) ? options.analysisLength : inputLength;
+  const masterMode = options.masterMode;
+  const nativeMode = masterMode === 1 ? 'length' : masterMode === 2 ? 'vr'
+    : masterMode === 0 ? 'manual' : masterMode === 3 ? 'cap' : 'length';
+  const mode = !options.mode || options.mode === 'saved'
+    ? (options.algorithm===false?'manual':nativeMode) : options.mode;
+  const referenceLength = positive(options.referenceLength) ? options.referenceLength : savedLength;
+  const length = options.mode === 'length' && positive(inputLength) ? inputLength : savedLength;
+  const vr = positive(options.fixedVR) ? options.fixedVR : options.savedVR;
+  const common = { inputLength, referenceLength, masterMode:masterMode??null, mode,
+    modeSource:masterMode==null?'legacy_length_default':'saved_anl', length, vr };
+  if (!positive(length)) return {...common,status:'unresolved',note:'분석 길이가 없습니다.'};
+  if (!['length','vr','manual'].includes(mode))
+    return {...common,status:'unresolved',note:'CAP 모드는 정전용량 기반 속도 산정값 확인이 필요합니다.'};
+  if (mode !== 'length' && !(Number.isFinite(vr) && vr >= .05 && vr <= 1))
+    return {...common,status:'unresolved',note:'저장 VR 또는 직접 입력 VR이 필요합니다.'};
+  const anchor = options.anchor ?? terminalAnchor(s,windowName,referenceLength,{
+    referenceBandwidthHz:options.referenceBandwidthHz,
+    savedVR:options.savedVR ?? vr,geometryMode:true,peakTolerancePct:options.peakTolerancePct,
+  });
+  const tracked = terminalAtBand(s,options.bandwidthHz??options.referenceBandwidthHz??s.maxFreq,
+    windowName,referenceLength,anchor);
+  if ((!tracked || tracked.status !== 'tracked') && mode==='manual')
+    return {...common,anchor,status:'manual',terminalStatus:tracked?.status??'unresolved',
+      terminalDistance:null,note:'길이·VR 고정 파형입니다. 종단이 미확정되어 정규화와 DNORM은 표시하지 않습니다.'};
+  if (!tracked || tracked.status !== 'tracked')
+    return {...common,anchor,status:tracked?.status??'unresolved',note:tracked?.note??'기준 종단 피크를 찾지 못했습니다.'};
+  const delayDistance = tracked.currentDelayDistance;
+  const effectiveVR = mode==='length' ? length/delayDistance : vr;
+  const effectiveLength = mode==='vr' ? effectiveVR*delayDistance : length;
+  if (!(effectiveVR >= .05 && effectiveVR <= 1 && effectiveLength > 0))
+    return {...common,anchor,status:'unresolved',note:'종단으로 구한 길이·VR이 유효 범위를 벗어납니다.'};
+  return {...common,...tracked,anchor,mode,masterMode:masterMode??null,
+    vr:effectiveVR,length:effectiveLength,terminalDistance:delayDistance*effectiveVR,
+    roundTripDelaySeconds:2*delayDistance/C,status:'tracked'};
 }
 
 /** GPT 엔진의 DNORM 식. SD/Variance와 Norm ON/OFF는 DNORM에 들어가지 않는다.

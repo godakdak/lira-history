@@ -1,11 +1,12 @@
 // LIRA 진단이력 — 웹 버전 (iPad Swift Playgrounds 앱은 이 화면을 그대로 띄우고 사진·파일·위치를 연결)
 // 데이터는 store.js를 통해 중앙 저장소(Supabase) 또는 이 브라우저(로컬 모드)에 저장된다.
 
-import * as Sig from './signature.js?v=0.7';
-import * as Lira from './lira.js?v=0.7';
-import * as Store from './store.js?v=0.7';
+import * as Sig from './signature.js?v=0.8';
+import * as Lira from './lira.js?v=0.8';
+import * as Store from './store.js?v=0.8';
+import {createAnalysisMetadata, mapCableDistance} from './analysis-support.js?v=0.8';
 
-const APP_VERSION = '0.7';
+const APP_VERSION = '0.8';
 /** 일부 파일만 새로 올렸거나 브라우저가 옛 파일을 쓰고 있으면 알린다 */
 const VERSION_PROBLEM = [['signature.js', Sig.VERSION], ['lira.js', Lira.VERSION], ['store.js', Store.VERSION]]
   .filter(([, v]) => v !== APP_VERSION).map(([n, v]) => `${n}(${v || '이전 버전'})`).join(', ');
@@ -511,6 +512,9 @@ const A = {
       addedAt: nowISO(), stage, source: 'lira', raw, rawNames,
       lira: {
         cable: anl?.cable || '', length: anl?.length ?? out?.length ?? null,
+        inputLength:anl?.inputLength??null,analysisLength:anl?.analysisLength??out?.length??null,
+        masterMode:anl?.masterMode??null,peakTolerancePct:anl?.peakTolerancePct??null,
+        algorithm:anl?.algorithm??true,
         bandPct: anl?.bandPct ?? null, maxFreqMHz: anl?.maxFreqMHz ?? null,
         bandHz: anl?.bandPct && anl?.maxFreqMHz ? anl.maxFreqMHz * 1e6 * anl.bandPct / 100 : null,
         vr: anl?.vr ?? out?.vr ?? null, residZL_uH: anl?.residZL_uH ?? null,
@@ -527,7 +531,8 @@ const A = {
       if (d.maxFreqMHz == null && anl?.maxFreqMHz) d.maxFreqMHz = Math.round(anl.maxFreqMHz * 1000) / 1000;
     });
     const site = d0 && siteById(d0.siteId);
-    if (site && site.lengthM == null && ref.lira.length) await A.updateSite(site.id, s => { s.lengthM = ref.lira.length; });
+    const inputLength=ref.lira.inputLength??ref.lira.length;
+    if (site && site.lengthM == null && inputLength) await A.updateSite(site.id, s => { s.lengthM = inputLength; });
     await A.refreshDiag(diagId);
     if (old) store.removeFiles([old.fileName, ...(old.raw || [])]).catch(() => {});
     const notes = [];
@@ -615,6 +620,19 @@ function loadSpectrum(path) {
     specCache.set(path, store.getText(path).then(t => markRaw(Sig.parseSpectrum(t))).catch(e => { specCache.delete(path); throw e; }));
   }
   return specCache.get(path);
+}
+
+// 예전에 업로드한 스펙트럼도 보관된 ANL에서 분석 모드·길이를 읽는다.
+// 저장소의 전산 긍장이나 원본 파일을 변경하지 않는다.
+const analysisMetadata = createAnalysisMetadata(path=>
+  store.getBlob(path).then(b=>b.arrayBuffer()).then(b=>Lira.readAnl(new TextDecoder('euc-kr').decode(b))));
+const metadataState = reactive({revision:0});
+function analysisMeta(ref) { void metadataState.revision; return analysisMetadata.get(ref); }
+async function loadAnalysisSpectrum(ref) {
+  const previous=analysisMetadata.get(ref);
+  const current=await analysisMetadata.read(ref);
+  if (current!==previous) metadataState.revision++;
+  return loadSpectrum(ref.fileName);
 }
 
 // 내보내기
@@ -979,7 +997,7 @@ const SignatureChart = {
       if (this.lengthMarker && this.lengthMarker <= xMax) {
         ctx.save(); ctx.setLineDash([4, 3]); ctx.globalAlpha = 0.7; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(px(this.lengthMarker), pr.y); ctx.lineTo(px(this.lengthMarker), pr.y + pr.h); ctx.stroke(); ctx.restore();
-        ctx.textAlign = 'right'; ctx.fillText(`종단 ${Math.round(this.lengthMarker)} m`, px(this.lengthMarker) - 3, pr.y + 2);
+        ctx.textAlign = 'right'; ctx.fillText(`종단 ${this.lengthMarker.toFixed(2)} m`, px(this.lengthMarker) - 3, pr.y + 2);
       }
       // 접속지점 (제외 범위 음영 + 점선)
       if (this.joints.length) {
@@ -1080,13 +1098,19 @@ const SignatureCompare = {
   components: { SignatureChart, BandwidthControl },
   props: { siteId: String, focusDiagId: String },
   data: () => ({
-    mode: 'timeline', phase: 'A', diagId: null, bandwidthMHz: 20, windowName: '4 Term B-H', vrMode: 'length', manualVR: 0.55,
+    mode: 'timeline', phase: 'A', diagId: null, bandwidthMHz: 20, windowName: '4 Term B-H', vrMode: 'saved', manualVR: 0.55,
     normalize: false, variance: 1, showSD: false, curves: [], hidden: [], cursor: null, savedNotice: false,
     windows: Sig.WINDOWS, loading: false, err: '', jointInput: '',
   }),
   computed: {
     site() { return siteById(this.siteId); },
     length() { return this.site?.lengthM || null; },
+    displayLength() { return this.curves.length ? Math.max(...this.curves.map(c=>c.length)) : this.length; },
+    displayJoints() {
+      const L=this.visibleCurves[0]?.length??this.length;
+      return this.joints.map(d=>mapCableDistance(d,this.length,L)).filter(d=>d!=null);
+    },
+    chartNormalized() { return this.normalize && this.visibleCurves.every(c=>!!c.norm); },
     allSources() {
       return historyOf(this.siteId).flatMap(d => d.phases.map(ph => {
         const ref = resultOf(d, ph)?.spectrum; return ref ? { diag: d, phase: ph, ref, id: d.id + '-' + ph } : null;
@@ -1099,12 +1123,16 @@ const SignatureCompare = {
     bwLo() { return Math.max(this.maxFreqMHz * 0.02, 0.05); },
     bwHi() { return Math.max(this.maxFreqMHz, this.bwLo + 0.01); },
     xMax() {
-      if (this.length > 0) return this.length * 1.05;
+      if (this.displayLength > 0) return this.displayLength * 1.05;
       const vr = this.vrMode === 'manual' ? this.manualVR : 0.55;
       const df = Math.max(...this.sources.map(s => s.ref.df), 10000);
       return vr * Sig.C / (2 * df) / 4;
     },
-    guideline() { return this.length ? Sig.guidelineBandwidthMHz(this.length) : null; },
+    guideline() {
+      const ref=analysisMeta(this.sources[0]?.ref);
+      const L=ref?.analysisLength??ref?.length??this.length;
+      return L ? Sig.guidelineBandwidthMHz(L) : null;
+    },
     /** 반전(반대편 끝에서 측정) — 진단 기록에 저장되어 판정에도 쓰인다 */
     reversed() { return this.allSources.filter(s => resultOf(s.diag, s.phase)?.reversed).map(s => s.id); },
     joints() { return siteJoints(this.site); },
@@ -1141,7 +1169,8 @@ const SignatureCompare = {
     resText() { const c = this.curves[0]; return c ? `분해능 ${c.resolutionM.toFixed(1)} m · Shadow ${(c.resolutionM * 5 / 3).toFixed(1)} m` : ''; },
     visibleCurves() { return this.curves.filter(c => !this.hidden.includes(c.id)); },
     vectors() { return this.cursor==null?[]:this.visibleCurves.flatMap(c=>{
-      const d=c.reversed?this.length-this.cursor:this.cursor;
+      if(!c.norm)return [];
+      const d=c.reversed?c.length-this.cursor:this.cursor;
       const vector=c.peaks.find(p=>Math.abs(p.distance-d)<1e-6)||Sig.dnormAt(c.raw,c.norm,d,c.offset);
       if(!vector) return [];
       const scale=60/Math.max(100,Math.hypot(vector.real,vector.imag));
@@ -1159,7 +1188,14 @@ const SignatureCompare = {
     varText() { return this.variance.toFixed(1); },
     tdr() { return Sig.tdrVelocity(this.manualVR).toFixed(1); },
   },
-  watch: { key() { this.schedule(); } },
+  watch: {
+    key() { this.schedule(); },
+    vrMode(value, previous) {
+      if (['vr','manual'].includes(value) && !['vr','manual'].includes(previous)) {
+        this.manualVR=analysisMeta(this.sources[0]?.ref).vr??this.curves[0]?.vr??.55;
+      }
+    },
+  },
   mounted() { this.setup(); },
   methods: {
     setup() {
@@ -1172,8 +1208,7 @@ const SignatureCompare = {
       const liraSrc = this.allSources.find(x => x.ref.lira?.bandHz);
       const initial = s?.sigBandwidthMHz ?? (liraSrc ? liraSrc.ref.lira.bandHz / 1e6 : null) ?? this.guideline ?? this.maxFreqMHz * 0.4;
       this.bandwidthMHz = clamp(initial, this.bwLo, this.bwHi);
-      if (!this.length) this.vrMode = 'manual';
-      this.normalize = !!this.length;   // LIRA Signature 탭 기본값 (Norm ON)
+      this.normalize = !!(this.length || liraSrc?.ref.lira?.length);   // LIRA Signature 탭 기본값 (Norm ON)
       // Variance: 구간 기준 → LIRA 분석 때 값 → 1 (LIRA 기본)
       const lv = this.allSources.find(x => x.ref.lira?.norm?.sigma != null)?.ref.lira.norm.sigma;
       this.variance = roundVar(s?.sigVariance ?? lv ?? 1);
@@ -1189,32 +1224,32 @@ const SignatureCompare = {
       let datas;
       try {
         this.loading = true;
-        datas = await Promise.all(srcs.map(s => loadSpectrum(s.ref.fileName).catch(() => null)));
+        datas = await Promise.all(srcs.map(s => loadAnalysisSpectrum(s.ref).catch(() => null)));
       } finally { this.loading = false; }
       if (token !== this.token) return;
       const bwHz = clamp(this.bandwidthMHz, this.bwLo, this.bwHi) * 1e6;
-      const L = this.length, xm = this.xMax;
       const dates = srcs.map(s => s.diag.date).sort();
       const out = [], problems=[];
       srcs.forEach((src, idx) => {
-        const data = datas[idx]; if (!data) return;
-        let vr = this.manualVR, anchor=null;
-        if (this.vrMode === 'length' && L) {
-          anchor=autoTerminal(data,src.ref,L,this.windowName,bwHz);
-          if(!anchor || !['candidate','tracked'].includes(anchor.status)) {problems.push(`${src.phase}상: 자동 종단 기준을 확정하지 못했습니다. 저장 VR/길이를 확인하거나 VR 직접 입력을 사용하세요.`);return;}
-          vr=anchor.vr;
-        }
+        const data = datas[idx]; if (!data) {problems.push(`${src.phase}상: 스펙트럼 또는 분석 설정을 읽지 못했습니다.`);return;}
+        const warning=analysisMetadata.warning(src.ref);
+        if(warning)problems.push(`${src.phase}상: ${warning}`);
+        const anchor=autoTerminal(data,src.ref,this.length,this.windowName,bwHz,
+          this.vrMode,this.vrMode==='vr'||this.vrMode==='manual'?this.manualVR:null);
+        if(!['tracked','manual'].includes(anchor.status)) {problems.push(`${src.phase}상: ${anchor.note}`);return;}
+        if(anchor.status==='manual')problems.push(`${src.phase}상: ${anchor.note}`);
+        const L=anchor.length,vr=anchor.vr,xm=L*1.05;
         const rev = this.reversed.includes(src.id);
         // 접속지점: 화면(구간 시점 기준) 좌표 → 측정 좌표
-        const own = L ? this.joints.map(x => (rev ? L - x : x)) : [];
+        const own = this.joints.map(x=>mapCableDistance(x,this.length,L,rev));
         const { r, norm, stat, ex, trace } = signatureCurve(data, src.ref, {
-          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: rev, variance: this.variance, exclude: own, terminalTracked:!!anchor,
+          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: rev, variance: this.variance, exclude: own.filter(x=>x!=null), terminalDistance:anchor.terminalDistance,suppressNormalization:anchor.status==='manual',
         });
         // 접속지점 신호 (감쇠 보정 dB)
         let jl = null, nt = null;
         if (norm && L) {
           nt = this.normalize ? trace : Sig.displayTrace(r, norm, true, rev, L, xm);
-          if (own.length) jl = own.map(x => jointPeak({ r, norm, stat }, x));
+          if (own.length) jl = own.map(x => x==null?null:jointPeak({ r, norm, stat }, x));
         }
         let title, color;
         if (this.mode === 'timeline') {
@@ -1225,22 +1260,23 @@ const SignatureCompare = {
           title = src.phase + '상 · ' + fmtDay(src.diag.date);
           color = PHASE_COLOR[src.phase] || COLORS.gray;
         }
-        const parts = [`VR ${vr.toFixed(3)}`];
+        const parts = [`${{length:'LEN',vr:'VR',manual:'수동'}[anchor.mode]} 기준 · 분석 길이 ${L.toFixed(2)} m · VR ${vr.toFixed(4)}`];
         let grade = null;
         if (this.normalize && norm) {
           const m = localMetric({ r, norm, stat, ex }, L);
           grade = m ? localGrade(m) : null;
           if (grade) parts.unshift(`국부신호 ${grade.label}` + (grade.key !== 'good' ? ` (${Math.round(rev ? L - m.atM : m.atM)} m 부근)` : ''));
-          if (stat) parts.splice(grade ? 1 : 0, 0, `국부신호 기준 SD ${stat.sd.toFixed(1)} dB` + (own.length ? `(접속지점 ${own.length}곳 제외)` : ''));
+          const validJoints=own.filter(x=>x!=null).length;
+          if (stat) parts.splice(grade ? 1 : 0, 0, `국부신호 기준 SD ${stat.sd.toFixed(1)} dB` + (validJoints ? `(접속지점 ${validJoints}곳 제외)` : ''));
           parts.push(`감쇠 ${(norm.slope * 1000).toFixed(1)} dB/km(왕복) · 종단 피크 ${norm.endPeakDB.toFixed(1)} dB`);
           parts.push(`기준선 ${norm.source}`);
-        } else if (this.normalize) parts.push('긍장 없음: 정규화 불가');
+        } else if (this.normalize) parts.push('종단 미확정: 원 신호 표시');
         parts.push(src.ref.label || src.ref.originalName);
         const exD = ex.map(([lo, hi]) => (rev ? [L - hi, L - lo] : [lo, hi]));   // 제외 범위 → 화면 좌표
         out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), nt: nt && markRaw(nt), jl, stat, zero: norm ? norm.zeroDB : null, exD,
-          raw:markRaw(r),norm: norm&&markRaw(norm),offset:dnormOffset(src.ref),reversed:rev,anchor,
+          raw:markRaw(r),norm: norm&&markRaw(norm),offset:dnormOffset(src.ref),reversed:rev,anchor,length:L,
           sourceFile:src.ref.originalName||src.ref.fileName,
-          peaks:Sig.dnormPeaks(r,norm,L,dnormOffset(src.ref)),
+          peaks:norm?Sig.dnormPeaks(r,norm,L,dnormOffset(src.ref)):[],
           date: src.diag.date, vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
       });
       this.curves = out;
@@ -1255,21 +1291,24 @@ const SignatureCompare = {
       A.setReversed(src.diag.id, src.phase, !this.reversed.includes(id));
     },
     /** 접속지점 추가: 커서 근처(±0.75×분해능)에서 보이는 곡선들의 평균이 가장 큰 곳으로 맞춘다 */
-    addJoint(x) {
+    addJoint(x, inputCoordinates=false) {
       if (x == null || !isFinite(x) || !this.length) return;
-      if (!(x > 0 && x < this.length)) { toast('접속지점은 0 m와 긍장 사이에 지정하세요.'); return; }
+      const chartLength=this.visibleCurves[0]?.length??this.length;
+      if(inputCoordinates)x=mapCableDistance(x,this.length,chartLength);
+      if (!(x > 0 && x < chartLength)) { toast('접속지점은 0 m와 긍장 사이에 지정하세요.'); return; }
       const cs = this.visibleCurves.filter(c => c.nt);
       let best = x;
       if (cs.length) {
         const res = cs[0].resolutionM, step = cs[0].nt.step;
         let bv = -Infinity;
-        for (let t = Math.max(x - JOINT_SEARCH * res, 0); t <= Math.min(x + JOINT_SEARCH * res, this.length); t += step) {
+        for (let t = Math.max(x - JOINT_SEARCH * res, 0); t <= Math.min(x + JOINT_SEARCH * res, chartLength); t += step) {
           let sum = 0, n = 0;
-          for (const c of cs) { const v = Sig.traceValueAt(c.nt, t); if (v != null) { sum += v; n++; } }
+          for (const c of cs) { const v = Sig.traceValueAt(c.nt, t*c.length/chartLength); if (v != null) { sum += v; n++; } }
           if (n && sum / n > bv) { bv = sum / n; best = t; }
         }
       }
-      const res = this.curves[0]?.resolutionM || 1;
+      best=mapCableDistance(best,chartLength,this.length);
+      const res = (this.visibleCurves[0]?.resolutionM || 1)*this.length/chartLength;
       if (this.joints.some(j => Math.abs(j - best) < 0.5 * res)) { toast('이미 가까운 곳에 접속지점이 있습니다.'); return; }
       A.setJoints(this.siteId, [...(this.site.joints || []), { d: best }]);
       toast(`접속지점을 ${best.toFixed(1)} m에 추가했습니다.`);
@@ -1277,7 +1316,7 @@ const SignatureCompare = {
     addJointInput() {
       const v = parseFloat(String(this.jointInput).replace(',', '.'));
       if (!isFinite(v)) { toast('거리를 숫자로 입력하세요.'); return; }
-      this.addJoint(v); this.jointInput = '';
+      this.addJoint(v,true); this.jointInput = '';
     },
     removeJoint(j) {
       const list = (this.site.joints || []).filter(x => Math.abs(Number(x.d) - j) > 1e-6);
@@ -1287,7 +1326,7 @@ const SignatureCompare = {
     readout(c) { const v = Sig.traceValueAt(c.trace, this.cursor); return v == null ? '–' : v.toFixed(1) + ' dB'; },
     exportDnorm() {
       const rows=[['source','calculated_gpt_dnorm_39db_v1'],['curve','distance_m','dnorm','angle_deg','real','imag','direction','band_hz','vr','norm_on','offset_db','slope_db_per_m','source_file','terminal_reference_hz','terminal_status']];
-      for(const c of this.visibleCurves)for(const p of c.peaks) rows.push([c.title,c.reversed?this.length-p.distance:p.distance,p.dnorm,p.angleDeg,p.real,p.imag,p.direction,c.raw.bandwidthHz,c.vr,this.normalize,c.offset,c.norm.slope,c.sourceFile,c.anchor?.referenceBandwidthHz,c.anchor?.status||'manual_vr']);
+      for(const c of this.visibleCurves)for(const p of c.peaks) rows.push([c.title,c.reversed?c.length-p.distance:p.distance,p.dnorm,p.angleDeg,p.real,p.imag,p.direction,c.raw.bandwidthHz,c.vr,this.normalize,c.offset,c.norm.slope,c.sourceFile,c.anchor?.referenceBandwidthHz,c.anchor?.status||'manual_vr']);
       const csv='\ufeff'+rows.map(row=>row.map(x=>{let s=String(x??'');if(typeof x==='string'&&/^[\s]*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}).join(',')).join('\r\n');
       download('lira-dnorm-peaks.csv',new Blob([csv],{type:'text/csv;charset=utf-8'}));
     },
@@ -1318,7 +1357,7 @@ const SignatureCompare = {
         <option v-for="d in diagsWithData" :key="d.id" :value="d.id">{{ fmtDay(d.date) }}</option>
       </select>
       <div class="chartbox">
-        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="length" v-model:cursor="cursor" :normalized="normalize" :levels="levels" :joints="joints" :joint-bands="jointBands"></signature-chart>
+        <signature-chart :curves="curves" :hidden="hidden" :x-max="xMax" :length-marker="displayLength" v-model:cursor="cursor" :normalized="chartNormalized" :levels="levels" :joints="displayJoints" :joint-bands="jointBands"></signature-chart>
       </div>
       <div class="readout" v-if="cursor != null">
         <b class="mono">{{ cursor.toFixed(1) }} m</b>
@@ -1355,7 +1394,7 @@ const SignatureCompare = {
         <div class="btnrow" style="justify-content:space-between"><h3>DNORM · 복소 위상각</h3><button class="btn small" @click="exportDnorm">피크 CSV</button></div>
         <div class="sub small">GPT 계산식 적용 · Norm 표시 전환은 DNORM과 위상각에 영향을 주지 않습니다. 원본 LIRA 위상·방향 기준은 검증 중입니다.</div>
         <div style="overflow-x:auto"><table class="dg"><thead><tr><th>측정</th><th>거리 m</th><th>DNORM</th><th>위상 °</th><th>방향</th></tr></thead><tbody>
-          <template v-for="c in visibleCurves" :key="c.id"><tr v-for="p in c.peaks" :key="c.id+'-'+p.distance" style="cursor:pointer" @click="cursor = c.reversed ? length-p.distance : p.distance"><td>{{ c.title }}</td><td>{{ (c.reversed ? length-p.distance : p.distance).toFixed(2) }}</td><td>{{ p.dnorm.toFixed(2) }}</td><td>{{ p.angleDeg.toFixed(2) }}</td><td>{{ p.direction }}</td></tr></template>
+          <template v-for="c in visibleCurves" :key="c.id"><tr v-for="p in c.peaks" :key="c.id+'-'+p.distance" style="cursor:pointer" @click="cursor = c.reversed ? c.length-p.distance : p.distance"><td>{{ c.title }}</td><td>{{ (c.reversed ? c.length-p.distance : p.distance).toFixed(2) }}</td><td>{{ p.dnorm.toFixed(2) }}</td><td>{{ p.angleDeg.toFixed(2) }}</td><td>{{ p.direction }}</td></tr></template>
         </tbody></table></div>
         <div class="sub small" v-if="cursor==null">피크 행 또는 Signature 그래프를 누르면 해당 거리의 복소 벡터를 표시합니다.</div>
         <div class="btnrow" style="flex-wrap:wrap"><div v-for="p in vectors" :key="p.id" style="min-width:210px">
@@ -1387,9 +1426,9 @@ const SignatureCompare = {
       <div class="panel">
         <div class="optrow"><div class="grow">윈도우</div><select class="boxinput" style="width:auto" v-model="windowName"><option v-for="w in windows" :key="w">{{ w }}</option></select></div>
         <div class="optrow"><div class="grow">전파속도(VR)</div>
-          <select class="boxinput" style="width:auto" v-model="vrMode" :disabled="!length"><option value="length">자동 · 기준 종단 유지</option><option value="manual">VR 직접 입력</option></select></div>
-        <div class="sub xs" v-if="vrMode==='length'">저장 분석대역(없으면 길이별 권장 대역)에서 종단을 찾고, 표시 대역 변경 시 그 주변만 추적해 VR을 자동 보정합니다.</div>
-        <div class="optrow" v-if="vrMode === 'manual' || !length">
+          <select class="boxinput" style="width:auto" v-model="vrMode"><option value="saved">LIRA 저장 모드</option><option value="length" :disabled="!length">LEN · 입력 길이로 VR 산정</option><option value="vr">VR · 입력 VR로 길이 산정</option><option value="manual">수동 · 길이와 VR 고정</option></select></div>
+        <div class="sub xs">입력 긍장 {{ length }} m와 분석 길이를 구분합니다. 저장 모드는 각 측정의 LEN·VR·수동 설정을 유지하며, 대역을 바꾸면 같은 종단 주변을 추적합니다.</div>
+        <div class="optrow" v-if="vrMode === 'vr' || vrMode === 'manual'">
           <span>VR</span><input type="range" class="range grow" min="0.30" max="0.90" step="0.001" v-model.number="manualVR">
           <div style="text-align:right;min-width:92px"><div class="mono">{{ manualVR.toFixed(3) }}</div><div class="sub xs mono">TDR {{ tdr }} m/μs</div></div>
         </div>
@@ -1414,29 +1453,35 @@ const SignatureCompare = {
 /**
  * 스펙트럼 1개의 Signature 곡선 (LIRA와 같은 계산).
  *  - 표시(Normalized ON): 감쇠 보정 후 0 dB = 절편 + Variance × SD — LIRA Normalized 그대로.
- *    LIRA 분석값(.sdt)이 있고 대역(±2%)·윈도우(4 Term B-H)가 같으면 그 기울기·절편·SD를 쓴다.
+ *    LIRA 분석값(.sdt)이 있고 대역(1 bin 이내)·거리/VR(0.1% 이내)·윈도우(4 Term B-H)가 같으면 그 기울기·절편·SD를 쓴다.
  *    variance가 null이면 LIRA 분석 때의 Variance(없으면 1).
  *  - ex: 접속지점(exclude, 측정 좌표)마다 반사 곡선 전체를 덮는 제외 구간 (±1.5×분해능 ~ 첫 골, 최대 ±3×분해능)
  *  - stat: 국부신호 판정 기준 = ex를 뺀 케이블 구간의 평균·SD. 표시용 0 dB 기준선·Variance와 무관하다.
  */
 const terminalCache = new WeakMap();
-function autoTerminal(data, ref, length, windowName, bandwidthHz) {
+function autoTerminal(data, ref, length, windowName, bandwidthHz, mode='saved',fixedVR=null) {
   let cache=terminalCache.get(data);if(!cache){cache=new Map();terminalCache.set(data,cache);}
-  const options={referenceBandwidthHz:ref?.lira?.bandHz, savedVR:ref?.lira?.vr};
-  const key=JSON.stringify([length,windowName,options]);
-  if(!cache.has(key))cache.set(key,Sig.terminalAnchor(data,windowName,length,options));
-  return Sig.terminalAtBand(data,bandwidthHz,windowName,length,cache.get(key));
+  const l=analysisMeta(ref),options={referenceBandwidthHz:l.bandHz,savedVR:l.vr,
+    analysisLength:l.analysisLength??l.length,masterMode:l.masterMode,
+    peakTolerancePct:l.peakTolerancePct,algorithm:l.algorithm,mode,fixedVR};
+  const referenceLength=options.analysisLength??length;
+  const key=JSON.stringify([referenceLength,windowName,l.bandHz,l.vr,l.peakTolerancePct]);
+  if(!cache.has(key))cache.set(key,Sig.terminalAnchor(data,windowName,referenceLength,{
+    referenceBandwidthHz:l.bandHz,savedVR:l.vr,peakTolerancePct:l.peakTolerancePct,geometryMode:true}));
+  return Sig.resolveAnalysisGeometry(data,windowName,length,{...options,bandwidthHz,anchor:cache.get(key)});
 }
 function dnormOffset(ref) {
-  const n=ref?.lira?.norm;
+  const n=analysisMeta(ref).norm;
   return n?.offset ?? (n?.sd!=null?n.zero-(n.sigma??1)*n.sd:0);
 }
-function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed, variance = null, exclude = [], terminalTracked = false }) {
+function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed, variance = null, exclude = [], terminalDistance = null,suppressNormalization=false }) {
   const L = length || null;
   const r = Sig.computeSignature(data, bwHz, windowName, vr, Math.max(xMax, L || 0) * 1.02);
-  let norm = Sig.makeNormalization(r, L, variance ?? 1, terminalTracked?L:null);
-  const ln = ref?.lira?.norm, lbw = ref?.lira?.bandHz;
-  if (norm && ln && lbw && Math.abs(bwHz - lbw) / lbw < 0.02 && windowName === '4 Term B-H') {
+  let norm = suppressNormalization?null:Sig.makeNormalization(r, L, variance ?? 1, terminalDistance);
+  const meta=analysisMeta(ref),ln=meta.norm,lbw=meta.bandHz;
+  const savedLength=meta.analysisLength??meta.length,savedVR=meta.vr;
+  const sameGeometry=savedLength>0&&savedVR>0&&Math.abs(L/savedLength-1)<.001&&Math.abs(vr/savedVR-1)<.001;
+  if (norm && ln && lbw && Math.abs(bwHz-lbw)<=data.df && sameGeometry && windowName === '4 Term B-H') {
     const sd = ln.sd ?? norm.sd, sig0 = ln.sd != null ? (ln.sigma ?? 1) : 1;
     const intercept = ln.zero - sig0 * sd, v = variance ?? sig0;
     norm = { ...norm, slope: ln.slope, intercept, sd, sigma: v, zeroDB: intercept + v * sd, source: 'LIRA 분석값' };
@@ -1449,20 +1494,22 @@ function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normali
 /** 미리보기·국부신호 판정에 쓰는 기본 분석 조건: 구간 기준 대역폭 → LIRA 분석대역 → 가이드라인 → 40% */
 function analysisFor(site, ref, data) {
   const windowName = Sig.WINDOWS.includes(site.sigWindow) ? site.sigWindow : '4 Term B-H';
-  const L = site.lengthM || null;
-  const lb = ref.lira?.bandHz;
-  const guide = L ? Sig.guidelineBandwidthMHz(L) * 1e6 : null;
+  const meta=analysisMeta(ref);
+  const referenceLength=meta.analysisLength??meta.length??site.lengthM;
+  const lb = meta.bandHz;
+  const guide = referenceLength ? Sig.guidelineBandwidthMHz(referenceLength) * 1e6 : null;
   const bwHz = Math.min((site.sigBandwidthMHz ? site.sigBandwidthMHz * 1e6 : null) ?? lb ?? guide ?? data.maxFreq * 0.4, data.maxFreq);
-  let vr = 0.55;
-  if (L) { const anchor = autoTerminal(data,ref,L,windowName,bwHz); if(!anchor || !['candidate','tracked'].includes(anchor.status))return null; vr=anchor.vr; }
+  const geometry=autoTerminal(data,ref,site.lengthM,windowName,bwHz);
+  if(!['tracked','manual'].includes(geometry.status))return null;
+  const L=geometry.length,vr=geometry.vr;
   const xMax = L ? L * 1.05 : vr * Sig.C / (2 * data.df) / 4;
   const variance = site.sigVariance != null && isFinite(site.sigVariance) ? roundVar(site.sigVariance) : null;
-  return { bwHz, windowName, vr, length: L, xMax, variance, terminalTracked:!!L };
+  return { bwHz, windowName, vr, length: L, xMax, variance, terminalDistance:geometry.terminalDistance,geometry,suppressNormalization:geometry.status==='manual' };
 }
 // ---------------------------------------------------------------------------
 // 판정 계산: 국부신호(접속지점 제외) · 접속지점(상간·개소간 비교)
 
-const EVAL_VERSION = 'e6-terminal-anchor';
+const EVAL_VERSION = 'e8-len-vr-mode';
 const JOINT_EXCLUDE = 1.5;     // 접속지점 앞뒤 최소 ±1.5×분해능은 국부신호에서 제외
 const JOINT_EXCLUDE_MAX = 3;   // 반사 꼬리가 이어지면 첫 골까지, 최대 ±3×분해능
 const END_EXCLUDE = 2, END_EXCLUDE_MAX = 4;   // 근단·종단 반사: 최소 2, 최대 4×분해능
@@ -1569,18 +1616,23 @@ async function evaluateDiag(d) {
   for (const ph of d.phases) {
     const r = resultOf(d, ph);
     if (!r?.spectrum) continue;
-    if (!L) { out[ph] = { local: { key, maxK: null, reason: '긍장 없음' }, joint: { key, dev: null, reason: '긍장 없음' } }; continue; }
-    const data = await loadSpectrum(r.spectrum.fileName);
+    let data;
+    try { data = await loadAnalysisSpectrum(r.spectrum); }
+    catch { return null; } // 일시적 읽기 실패로 기존 판정을 덮어쓰지 않는다.
+    if(analysisMetadata.warning(r.spectrum))return null;
     const an = analysisFor(site, r.spectrum, data);
     if(!an){out[ph]={local:{key,maxK:null,reason:'자동 종단 미확정'},joint:{key,dev:null,reason:'자동 종단 미확정'}};continue;}
-    const rev = !!r.reversed, conv = x => (rev ? L - x : x);   // 구간 좌표 ↔ 측정 좌표
-    const own = joints.map(conv);
-    const c = signatureCurve(data, r.spectrum, { ...an, normalize: true, reversed: false, exclude: own });
-    const m = localMetric(c, L);
-    out[ph] = { local: { key, maxK: m ? m.maxK : null, atM: m ? Math.round(conv(m.atM)) : null, src: c.norm?.source || '', bwMHz: Math.round(an.bwHz / 1e4) / 100,
+    const actualLength=an.length;
+    const rev = !!r.reversed;
+    const own = joints.map(x=>mapCableDistance(x,L,actualLength,rev));
+    const conv = x => mapCableDistance(rev?actualLength-x:x,actualLength,L??actualLength);
+    const c = signatureCurve(data, r.spectrum, { ...an, normalize: true, reversed: false, exclude: own.filter(x=>x!=null) });
+    const m = localMetric(c, actualLength);
+    const atM=m?conv(m.atM):null;
+    out[ph] = { local: { key, maxK: m ? m.maxK : null, atM: atM!=null ? Math.round(atM) : null, src: c.norm?.source || '', bwMHz: Math.round(an.bwHz / 1e4) / 100,
       meanDB: c.stat ? round1(c.stat.mean) : null, sdDB: c.stat ? round1(c.stat.sd) : null, nJoints: joints.length } };
     if (!m) out[ph].local.reason = !c.norm ? '정규화 불가' : !c.stat ? '접속지점을 빼면 케이블 구간이 너무 짧음' : '케이블이 짧거나 신호 없음';
-    if (c.norm && joints.length) levels[ph] = own.map(x => jointPeak(c, x));
+    if (c.norm && joints.length) levels[ph] = own.map(x => x==null?null:jointPeak(c, x));
   }
   const cmp = jointCompare(levels);
   for (const ph of Object.keys(out)) {
@@ -1604,31 +1656,35 @@ async function evaluateDiag(d) {
 const SignaturePreview = {
   components: { SignatureChart },
   props: { refObj: Object, site: Object, phase: String, reversed: Boolean },
-  data: () => ({ curves: [], xMax: 100, caption: '', cursor: null, normalized: false, bands: [] }),
+  data: () => ({ curves: [], xMax: 100, analysisLength:null,caption: '', cursor: null, normalized: false, bands: [] }),
   computed: {
     key() { return [this.refObj.fileName, this.site.sigBandwidthMHz, this.site.sigWindow, this.site.sigVariance, this.site.lengthM, this.reversed, this.joints.join(',')].join('|'); },
     joints() { return siteJoints(this.site); },
+    displayJoints() { return this.joints.map(x=>mapCableDistance(x,this.site.lengthM,this.analysisLength)).filter(x=>x!=null); },
   },
   watch: { key: { immediate: true, handler() { this.build(); } } },
   methods: {
     async build() {
       let data;
-      try { data = await loadSpectrum(this.refObj.fileName); } catch (e) { this.caption = '스펙트럼을 읽지 못했습니다: ' + e.message; return; }
+      try { data = await loadAnalysisSpectrum(this.refObj); } catch (e) { this.caption = '스펙트럼 또는 분석 설정을 읽지 못했습니다: ' + e.message; return; }
       const an = analysisFor(this.site, this.refObj, data);
       if(!an){this.curves=[];this.caption='자동 종단을 확정하지 못했습니다. 길이·저장 VR을 확인하세요.';return;}
       const { bwHz: bw, windowName: win, vr, length: L, xMax: xm } = an;
       const rev = !!(this.reversed && L);
-      const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: rev, exclude: L ? this.joints.map(x => (rev ? L - x : x)) : [] });
+      const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: rev,
+        exclude:this.joints.map(x=>mapCableDistance(x,this.site.lengthM,L,rev)).filter(x=>x!=null) });
       const { r, norm, trace } = c;
       this.xMax = xm;
+      this.analysisLength=L;
       this.bands = c.ex.map(([lo, hi]) => (rev ? [L - hi, L - lo] : [lo, hi]));
       this.normalized = !!(L && norm);
-      this.caption = `대역폭 ${(bw / 1e6).toFixed(2)} MHz · ${win} · VR ${vr.toFixed(3)} · 분해능 ${r.resolutionM.toFixed(1)} m · ` +
-        (this.normalized ? `Normalized · Variance ${norm.sigma.toFixed(1)} (기준선 ${norm.source})` : 'Normalized OFF (긍장 없음)') + (this.reversed ? ' · 반전' : '');
+      this.caption = `분석 길이 ${L.toFixed(2)} m · 대역폭 ${(bw / 1e6).toFixed(2)} MHz · ${win} · VR ${vr.toFixed(4)} · 분해능 ${r.resolutionM.toFixed(1)} m · ` +
+        (this.normalized ? `Normalized · Variance ${norm.sigma.toFixed(1)} (기준선 ${norm.source})` : 'Normalized OFF (종단 미확정: 원 신호 표시)') + (this.reversed ? ' · 반전' : '') +
+        (analysisMetadata.warning(this.refObj)?' · '+analysisMetadata.warning(this.refObj):'');
       this.curves = [markRaw({ id: this.phase, title: this.phase + '상', color: PHASE_COLOR[this.phase] || COLORS.gray, trace: markRaw(trace) })];
     },
   },
-  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="site.lengthM" :cursor="null" :height="170" :interactive="false" :normalized="normalized" :joints="joints" :joint-bands="bands"></signature-chart></div>
+  template: `<div><div class="chartbox"><signature-chart :curves="curves" :x-max="xMax" :length-marker="analysisLength" :cursor="null" :height="170" :interactive="false" :normalized="normalized" :joints="displayJoints" :joint-bands="bands"></signature-chart></div>
     <div class="sub xs mono" style="margin-top:4px">{{ caption }}</div></div>`,
 };
 

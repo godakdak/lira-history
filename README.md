@@ -161,3 +161,12 @@ window.LIRA_CONFIG = {
 1. Supabase Auth로 로그인 추가 → 본부별 권한 정책(RLS)으로 `setup.sql`의 "demo" 정책 교체
 2. 한전 내부 서버로 옮길 경우 `store.js`만 새 서버 API에 맞게 바꾸면 화면 코드는 그대로 쓸 수 있습니다.
 3. 판정 기준이 확정되면 설정 화면의 입력을 막고 값을 고정합니다 (`app.js`의 `DEFAULT_CRITERIA`).
+# v0.8 길이·VR 모드
+
+ANL의 `Operation.Length`(입력 긍장)와 `Analyzer.SegLen0`(분석 길이)를 별도로 보존합니다. 저장 MasterMode는 0=Manual, 1=LEN, 2=VR, 3=Cap입니다. LEN은 길이를 유지해 VR을, VR은 속도비를 유지해 길이를 산정합니다. Algorithm OFF는 두 값을 고정합니다. Cap의 정전용량 모델은 지원하지 않습니다.
+
+대역 변경 시 저장 종단 주변의 지연을 추적하며, 실제 분석 길이를 거리축·정규화·DNORM에 사용합니다. 접속점은 입력 긍장에 대한 상대 위치로 분석 좌표에 환산합니다. 기존 자료의 ANL 보강은 메모리에서만 수행합니다. 일시적인 자료 읽기 실패는 기존 판정을 덮어쓰지 않습니다.
+
+종단 검출의 NI 내부 보간 전체와 원본 LIRA의 완전 동등성은 확인되지 않았습니다. 저장 종단 군집 유지와 현재 대역 제한 추적은 이 뷰어의 명시적 구현입니다.
+
+검증: `node --test test_signature.mjs test_geometry.mjs`
