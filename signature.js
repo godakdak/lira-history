@@ -8,7 +8,7 @@ export const allPhases = ['A', 'B', 'C', 'N'];
 // 스펙트럼 (주파수 - 임피던스 위상)
 
 /** 파일 버전 — app.js와 같아야 한다 (일부 파일만 올리면 화면에 경고) */
-export const VERSION = '0.6';
+export const VERSION = '0.7';
 
 export class SpectrumParseError extends Error {}
 
@@ -151,7 +151,7 @@ function fftInPlace(re, im) {
 }
 
 /** 실수 x(길이 ≤ N)를 N점 zero-padding FFT한 |X[k]|, k = 0..bins-1 */
-export function realFFTMagnitude(x, log2n, bins) {
+export function realFFTComplex(x, log2n, bins) {
   const N = 1 << log2n, H = N >> 1;
   const re = new Float64Array(H), im = new Float64Array(H);
   for (let i = 0; i < Math.min(x.length, N); i++) {
@@ -159,6 +159,7 @@ export function realFFTMagnitude(x, log2n, bins) {
   }
   fftInPlace(re, im);
   const out = new Float64Array(Math.min(bins, H));
+  const real = new Float64Array(out.length), imag = new Float64Array(out.length);
   for (let k = 0; k < out.length; k++) {
     const k2 = k === 0 ? 0 : H - k;
     const er = 0.5 * (re[k] + re[k2]), ei = 0.5 * (im[k] - im[k2]);
@@ -166,9 +167,12 @@ export function realFFTMagnitude(x, log2n, bins) {
     const a = -2 * Math.PI * k / N, c = Math.cos(a), s = Math.sin(a);
     const xr = er + c * orr - s * oi, xi = ei + c * oi + s * orr;
     out[k] = Math.hypot(xr, xi);
+    real[k] = xr; imag[k] = xi;
   }
-  return out;
+  return { magnitude: out, real, imag };
 }
+
+export function realFFTMagnitude(x, log2n, bins) { return realFFTComplex(x, log2n, bins).magnitude; }
 
 // ---------------------------------------------------------------------------
 // Signature
@@ -201,15 +205,112 @@ export function computeSignature(s, bandwidthHz, windowName, vr, maxDistance) {
   const npad = 1 << log2n;
   const step = totalRange / npad;
   const bins = Math.min(npad / 2, Math.floor(maxDistance / step) + 3);
-  const mag = realFFTMagnitude(x, log2n, bins);
+  const complex = realFFTComplex(x, log2n, bins), mag = complex.magnitude;
   const scale = Math.SQRT2 / Math.max(wsum, 1e-9);
   const values = new Float64Array(mag.length);
   for (let i = 0; i < mag.length; i++) values[i] = 20 * Math.log10(mag[i] * scale + 1e-9);
   const top = s.f0 + s.df * (n - 1);
   return {
-    step, values, vr, bandwidthHz: top, resolutionM: v / Math.max(top, 1), bandSamples: m,
+    step, values, real: complex.real, imag: complex.imag, vr, prepend, npad,
+    bandwidthHz: top, resolutionM: v / Math.max(top, 1), bandSamples: m,
+    phaseConvention: 'forward DFT; first measured sample is phase origin; radians internally',
     get shadowM() { return this.resolutionM * 5 / 3; },
   };
+}
+
+/** 표시 대역에 독립적인 자동 종단 기준. 대역 조절마다 전체 최대 피크를 새로 고르지 않는다. */
+export function terminalAnchor(s, windowName, length, options = {}) {
+  if (!(length > 0)) return null;
+  const referenceHz = Math.min(options.referenceBandwidthHz || guidelineBandwidthMHz(length)*1e6, s.maxFreq);
+  const saved = options.savedVR;
+  const prior = Number.isFinite(saved) && saved >= .3 && saved <= .9 ? saved : null;
+  const r = computeSignature(s, referenceHz, windowName, 1, length/.3*1.05);
+  const expected = prior ? length/prior : null;
+  const halfWidth = expected ? Math.max(expected*.03, r.resolutionM) : 0;
+  const low = expected ? Math.max(length/.9, expected-halfWidth) : length/.9;
+  const high = expected ? Math.min(length/.3, expected+halfWidth) : length/.3;
+  const peaks=[];
+  for(let i=Math.max(1,Math.ceil(low/r.step));i<Math.min(r.values.length-1,Math.floor(high/r.step));i++) {
+    if(r.values[i]>r.values[i-1] && r.values[i]>=r.values[i+1]) peaks.push(i);
+  }
+  if(!peaks.length || r.resolutionM > length/.3-length/.9) return null;
+  peaks.sort((a,b)=>r.values[b]-r.values[a]);
+  const i=peaks[0], [a,b,c]=[r.values[i-1],r.values[i],r.values[i+1]];
+  const den=a-2*b+c, shift=den?Math.max(-.5,Math.min(.5,.5*(a-c)/den)):0;
+  const delayDistance=(i+shift)*r.step;
+  const competitor=peaks.find(j=>Math.abs(j-i)*r.step>r.resolutionM);
+  const marginDB=competitor==null?null:b-r.values[competitor];
+  return { vr:length/delayDistance, delayDistance, referenceBandwidthHz:r.bandwidthHz,
+    referenceResolutionM:r.resolutionM,
+    savedVR:prior, status:!prior && marginDB!=null && marginDB<3?'ambiguous':'candidate',
+    marginDB, method:prior?'saved_vr_neighborhood_at_reference_band':'maximum_at_reference_band',
+    note:'자동 기준 대역의 종단을 유지합니다. 실제 종단 여부는 측정 조건과 함께 확인해야 합니다.' };
+}
+
+/** 기준 종단 주변만 추적하여 현재 대역의 미세한 지연 변화에 VR을 자동 보정한다.
+ * 내부 반사 전체에서 최댓값을 다시 고르는 경로와 달리 기준 종단의 정체성을 유지한다.
+ */
+export function terminalAtBand(s, bandwidthHz, windowName, length, anchor) {
+  if(!anchor || anchor.status==='ambiguous') return anchor;
+  const r=computeSignature(s,bandwidthHz,windowName,1,length/.3*1.05);
+  const expected=anchor.delayDistance;
+  const radius=Math.min(expected*.03,Math.max(anchor.referenceResolutionM,r.resolutionM));
+  if(r.resolutionM>expected*.1) return {...anchor,status:'unresolved',note:'현재 대역의 종단 분해능이 부족합니다.'};
+  const peaks=[];
+  for(let i=Math.max(1,Math.ceil((expected-radius)/r.step));i<Math.min(r.values.length-1,Math.floor((expected+radius)/r.step));i++) {
+    if(r.values[i]>r.values[i-1] && r.values[i]>=r.values[i+1]) peaks.push(i);
+  }
+  if(!peaks.length) return {...anchor,status:'unresolved',note:'기준 종단 주변에서 현재 대역 피크를 찾지 못했습니다.'};
+  peaks.sort((a,b)=>r.values[b]-r.values[a]);
+  const i=peaks[0],a=r.values[i-1],b=r.values[i],c=r.values[i+1];
+  // 기준 대역에서 한 종단으로 분해되던 다중 봉우리는 같은 군집으로 취급한다.
+  const competitor=peaks.find(j=>Math.abs(j-i)*r.step>Math.max(r.resolutionM,anchor.referenceResolutionM));
+  if(competitor!=null && b-r.values[competitor]<3) return {...anchor,status:'ambiguous',note:'기준 종단 주변에 비슷한 피크 군집이 여러 개 있습니다.'};
+  const den=a-2*b+c,shift=den?Math.max(-.5,Math.min(.5,.5*(a-c)/den)):0;
+  const currentDelayDistance=(i+shift)*r.step;
+  return {...anchor,vr:length/currentDelayDistance,currentDelayDistance,
+    trackingBandHz:r.bandwidthHz,trackingShiftM:currentDelayDistance-expected,
+    status:'tracked',method:anchor.method+'+bounded_band_tracking'};
+}
+
+/** GPT 엔진의 DNORM 식. SD/Variance와 Norm ON/OFF는 DNORM에 들어가지 않는다.
+ * Python의 음수 dB/index 기울기 ↔ 이 뷰어의 양수 dB/m 감쇠 보정을 명시적으로 변환한다.
+ */
+export function dnormAt(r, norm, distance, offset = 0) {
+  if(!norm || !Number.isFinite(offset) || offset>=39) return null;
+  const power=sigValueAt(r,distance);
+  if(power==null) return null;
+  const p=Math.abs(distance)/r.step, i=Math.floor(p), t=p-i;
+  if(!r.real || !r.imag || i+1>=r.real.length) return null;
+  const re=r.real[i]*(1-t)+r.real[i+1]*t, im=r.imag[i]*(1-t)+r.imag[i+1]*t;
+  // 기존 FFT는 0 Hz를 한 점 보충한다. GPT의 첫 측정 표본 원점으로 위상을 회전한다.
+  const rotation=r.prepend ? 2*Math.PI*p/r.npad : 0;
+  const realFFT=re*Math.cos(rotation)-im*Math.sin(rotation);
+  const imagFFT=re*Math.sin(rotation)+im*Math.cos(rotation);
+  const angle=Math.atan2(imagFFT,realFFT), dnorm=100*(power+norm.slope*Math.abs(distance)-offset)/(39-offset);
+  const radius=Math.max(dnorm,0), dominant=Math.abs(realFFT)>Math.abs(imagFFT)?realFFT:imagFFT;
+  return { distance, dnorm, angleDeg:angle*180/Math.PI, real:radius*Math.cos(angle), imag:radius*Math.sin(angle),
+    direction:dominant>0?'UP':'DOWN', offset, slopeDBPerM:norm.slope,
+    method:'gpt_dnorm_39db_v1', phaseStatus:'DFT phase; LIRA rotation/sign equivalence unverified' };
+}
+
+export function dnormPeaks(r, norm, length, offset=0) {
+  if(!norm || !(length>0)) return [];
+  const peaks=[];
+  const value=i=>r.values[i]+norm.slope*i*r.step-offset;
+  for(let i=1;i<r.values.length-1;i++) {
+    const d=i*r.step, a=value(i-1), b=value(i), c=value(i+1);
+    if(d<=r.resolutionM || d>=length-r.resolutionM || !(b>a && b>=c) || b<=norm.sigma*norm.sd) continue;
+    const den=a-2*b+c, shift=den?Math.max(-.5,Math.min(.5,.5*(a-c)/den)):0;
+    const p=dnormAt(r,norm,(i+shift)*r.step,offset);
+    if(p) {p.dnorm=100*(b-.25*(a-c)*shift)/(39-offset); const radius=Math.max(p.dnorm,0),angle=p.angleDeg*Math.PI/180;p.real=radius*Math.cos(angle);p.imag=radius*Math.sin(angle);peaks.push(p);}
+  }
+  const out=[];
+  for(const p of peaks.sort((a,b)=>b.dnorm-a.dnorm)) {
+    if(out.every(q=>Math.abs(p.distance-q.distance)>=r.resolutionM/2)) out.push(p);
+    if(out.length===12) break;
+  }
+  return out.sort((a,b)=>a.distance-b.distance);
 }
 
 export function sigValueAt(r, distance) {
@@ -258,11 +359,11 @@ function meanStd(a) {
   return [m, Math.sqrt(Math.max(s2 / a.length - m * m, 0))];
 }
 
-export function makeNormalization(r, length, variance = 1) {
+export function makeNormalization(r, length, variance = 1, terminalDistance = null) {
   if (!(length > 0) || !(r.step > 0) || r.values.length < 9) return null;
   const v = r.values;
-  const i0 = Math.max(Math.floor(length * 0.85 / r.step), 1);
-  const i1 = Math.min(Math.floor(length * 1.15 / r.step), v.length - 2);
+  const i0 = Math.max(Math.floor((terminalDistance==null?length*.85:terminalDistance-2*r.step) / r.step), 1);
+  const i1 = Math.min(Math.ceil((terminalDistance==null?length*1.15:terminalDistance+2*r.step) / r.step), v.length - 2);
   if (i1 <= i0) return null;
   let b = i0;
   for (let i = i0; i <= i1; i++) if (v[i] > v[b]) b = i;

@@ -1,11 +1,11 @@
 // LIRA 진단이력 — 웹 버전 (iPad Swift Playgrounds 앱은 이 화면을 그대로 띄우고 사진·파일·위치를 연결)
 // 데이터는 store.js를 통해 중앙 저장소(Supabase) 또는 이 브라우저(로컬 모드)에 저장된다.
 
-import * as Sig from './signature.js?v=0.6';
-import * as Lira from './lira.js?v=0.6';
-import * as Store from './store.js?v=0.6';
+import * as Sig from './signature.js?v=0.7';
+import * as Lira from './lira.js?v=0.7';
+import * as Store from './store.js?v=0.7';
 
-const APP_VERSION = '0.6';
+const APP_VERSION = '0.7';
 /** 일부 파일만 새로 올렸거나 브라우저가 옛 파일을 쓰고 있으면 알린다 */
 const VERSION_PROBLEM = [['signature.js', Sig.VERSION], ['lira.js', Lira.VERSION], ['store.js', Store.VERSION]]
   .filter(([, v]) => v !== APP_VERSION).map(([n, v]) => `${n}(${v || '이전 버전'})`).join(', ');
@@ -1140,6 +1140,13 @@ const SignatureCompare = {
     },
     resText() { const c = this.curves[0]; return c ? `분해능 ${c.resolutionM.toFixed(1)} m · Shadow ${(c.resolutionM * 5 / 3).toFixed(1)} m` : ''; },
     visibleCurves() { return this.curves.filter(c => !this.hidden.includes(c.id)); },
+    vectors() { return this.cursor==null?[]:this.visibleCurves.flatMap(c=>{
+      const d=c.reversed?this.length-this.cursor:this.cursor;
+      const vector=c.peaks.find(p=>Math.abs(p.distance-d)<1e-6)||Sig.dnormAt(c.raw,c.norm,d,c.offset);
+      if(!vector) return [];
+      const scale=60/Math.max(100,Math.hypot(vector.real,vector.imag));
+      return [{id:c.id,title:c.title,color:c.color,...vector,px:80+vector.real*scale,py:80-vector.imag*scale}];
+    }); },
     /** 관심·주의 기준선: 곡선마다 (접속지점 제외 케이블 평균 + k×SD)를 정규화 좌표로 옮긴 높이의 평균 (한 개씩만 표시) */
     levels() {
       if (!this.normalize || !this.showSD) return [];
@@ -1188,21 +1195,20 @@ const SignatureCompare = {
       const bwHz = clamp(this.bandwidthMHz, this.bwLo, this.bwHi) * 1e6;
       const L = this.length, xm = this.xMax;
       const dates = srcs.map(s => s.diag.date).sort();
-      this.vrCache = this.vrCache || new Map();
-      const out = [];
+      const out = [], problems=[];
       srcs.forEach((src, idx) => {
         const data = datas[idx]; if (!data) return;
-        let vr = this.manualVR;
+        let vr = this.manualVR, anchor=null;
         if (this.vrMode === 'length' && L) {
-          const k = `${src.ref.fileName}|${bwHz}|${this.windowName}|${L}`;
-          if (!this.vrCache.has(k)) this.vrCache.set(k, Sig.estimateVR(data, bwHz, this.windowName, L));
-          const est = this.vrCache.get(k); if (est) vr = est;
+          anchor=autoTerminal(data,src.ref,L,this.windowName,bwHz);
+          if(!anchor || !['candidate','tracked'].includes(anchor.status)) {problems.push(`${src.phase}상: 자동 종단 기준을 확정하지 못했습니다. 저장 VR/길이를 확인하거나 VR 직접 입력을 사용하세요.`);return;}
+          vr=anchor.vr;
         }
         const rev = this.reversed.includes(src.id);
         // 접속지점: 화면(구간 시점 기준) 좌표 → 측정 좌표
         const own = L ? this.joints.map(x => (rev ? L - x : x)) : [];
         const { r, norm, stat, ex, trace } = signatureCurve(data, src.ref, {
-          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: rev, variance: this.variance, exclude: own,
+          bwHz, windowName: this.windowName, vr, length: L, xMax: xm, normalize: this.normalize, reversed: rev, variance: this.variance, exclude: own, terminalTracked:!!anchor,
         });
         // 접속지점 신호 (감쇠 보정 dB)
         let jl = null, nt = null;
@@ -1232,9 +1238,13 @@ const SignatureCompare = {
         parts.push(src.ref.label || src.ref.originalName);
         const exD = ex.map(([lo, hi]) => (rev ? [L - hi, L - lo] : [lo, hi]));   // 제외 범위 → 화면 좌표
         out.push(markRaw({ id: src.id, title, color, trace: markRaw(trace), nt: nt && markRaw(nt), jl, stat, zero: norm ? norm.zeroDB : null, exD,
+          raw:markRaw(r),norm: norm&&markRaw(norm),offset:dnormOffset(src.ref),reversed:rev,anchor,
+          sourceFile:src.ref.originalName||src.ref.fileName,
+          peaks:Sig.dnormPeaks(r,norm,L,dnormOffset(src.ref)),
           date: src.diag.date, vr, resolutionM: r.resolutionM, detail: parts.join(' · ') }));
       });
       this.curves = out;
+      this.err = problems.join(' ');
       this.savedNotice = false;
     },
     stepVar(d) { this.variance = roundVar(this.variance + d * VAR_STEP); },
@@ -1275,6 +1285,12 @@ const SignatureCompare = {
     },
     fmtDay,
     readout(c) { const v = Sig.traceValueAt(c.trace, this.cursor); return v == null ? '–' : v.toFixed(1) + ' dB'; },
+    exportDnorm() {
+      const rows=[['source','calculated_gpt_dnorm_39db_v1'],['curve','distance_m','dnorm','angle_deg','real','imag','direction','band_hz','vr','norm_on','offset_db','slope_db_per_m','source_file','terminal_reference_hz','terminal_status']];
+      for(const c of this.visibleCurves)for(const p of c.peaks) rows.push([c.title,c.reversed?this.length-p.distance:p.distance,p.dnorm,p.angleDeg,p.real,p.imag,p.direction,c.raw.bandwidthHz,c.vr,this.normalize,c.offset,c.norm.slope,c.sourceFile,c.anchor?.referenceBandwidthHz,c.anchor?.status||'manual_vr']);
+      const csv='\ufeff'+rows.map(row=>row.map(x=>{let s=String(x??'');if(typeof x==='string'&&/^[\s]*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}).join(',')).join('\r\n');
+      download('lira-dnorm-peaks.csv',new Blob([csv],{type:'text/csv;charset=utf-8'}));
+    },
     async saveStd() {
       await A.updateSite(this.siteId, s => { s.sigBandwidthMHz = this.bandwidthMHz; s.sigWindow = this.windowName; s.sigVariance = this.variance; });
       this.savedNotice = true;
@@ -1290,6 +1306,7 @@ const SignatureCompare = {
       <div class="sub small" style="margin-top:4px">진단 기록의 상별 결과에서 LIRA 측정 파일(.lira·.anl·.out·.sdt·.pbd) 또는 스펙트럼 텍스트를 불러오면, 여기에서 Signature를 계산해 겹쳐 봅니다.</div>
     </div>
     <template v-else>
+      <div v-if="err" class="panel" role="alert">{{ err }}</div>
       <div class="seg" style="margin-bottom:8px">
         <button :class="{on: mode === 'timeline'}" @click="mode = 'timeline'">전후 비교 (같은 상)</button>
         <button :class="{on: mode === 'phases'}" @click="mode = 'phases'">상간 비교 (같은 진단)</button>
@@ -1334,6 +1351,18 @@ const SignatureCompare = {
         </div>
         <div class="sub xs" v-if="!length">긍장 정보가 있어야 감쇠 보정과 정규화를 할 수 있습니다. 구간 정보에 긍장을 입력하세요.</div>
       </div>
+      <div class="panel" v-if="visibleCurves.length">
+        <div class="btnrow" style="justify-content:space-between"><h3>DNORM · 복소 위상각</h3><button class="btn small" @click="exportDnorm">피크 CSV</button></div>
+        <div class="sub small">GPT 계산식 적용 · Norm 표시 전환은 DNORM과 위상각에 영향을 주지 않습니다. 원본 LIRA 위상·방향 기준은 검증 중입니다.</div>
+        <div style="overflow-x:auto"><table class="dg"><thead><tr><th>측정</th><th>거리 m</th><th>DNORM</th><th>위상 °</th><th>방향</th></tr></thead><tbody>
+          <template v-for="c in visibleCurves" :key="c.id"><tr v-for="p in c.peaks" :key="c.id+'-'+p.distance" style="cursor:pointer" @click="cursor = c.reversed ? length-p.distance : p.distance"><td>{{ c.title }}</td><td>{{ (c.reversed ? length-p.distance : p.distance).toFixed(2) }}</td><td>{{ p.dnorm.toFixed(2) }}</td><td>{{ p.angleDeg.toFixed(2) }}</td><td>{{ p.direction }}</td></tr></template>
+        </tbody></table></div>
+        <div class="sub small" v-if="cursor==null">피크 행 또는 Signature 그래프를 누르면 해당 거리의 복소 벡터를 표시합니다.</div>
+        <div class="btnrow" style="flex-wrap:wrap"><div v-for="p in vectors" :key="p.id" style="min-width:210px">
+          <div class="small bold">{{ p.title }}</div><svg viewBox="0 0 160 160" width="160" height="160" role="img" :aria-label="p.title+' 복소 벡터'"><circle cx="80" cy="80" r="60" fill="none" stroke="#aab4c1"/><path d="M10 80 H150 M80 10 V150" stroke="#aab4c1"/><line x1="80" y1="80" :x2="p.px" :y2="p.py" :stroke="p.color" stroke-width="3"/><circle :cx="p.px" :cy="p.py" r="4" :fill="p.color"/><text x="136" y="75" font-size="10">Re</text><text x="85" y="18" font-size="10">Im</text></svg>
+          <div class="small mono">DNORM {{ p.dnorm.toFixed(2) }} · {{ p.angleDeg.toFixed(2) }}°<br>Re {{ p.real.toFixed(2) }} / Im {{ p.imag.toFixed(2) }}</div>
+        </div></div>
+      </div>
       <div class="panel" v-if="length">
         <div class="optrow"><div class="grow"><div class="t">접속지점</div>
           <div class="sub xs">구간 시점 기준 거리. 지정한 접속지점 신호는 국부신호에서 빼고, 같은 접속개소의 다른 상·같은 상의 다른 접속개소와 비교해 따로 판정합니다.</div></div></div>
@@ -1358,7 +1387,8 @@ const SignatureCompare = {
       <div class="panel">
         <div class="optrow"><div class="grow">윈도우</div><select class="boxinput" style="width:auto" v-model="windowName"><option v-for="w in windows" :key="w">{{ w }}</option></select></div>
         <div class="optrow"><div class="grow">전파속도(VR)</div>
-          <select class="boxinput" style="width:auto" v-model="vrMode" :disabled="!length"><option value="length">긍장 기준 자동</option><option value="manual">VR 직접 입력</option></select></div>
+          <select class="boxinput" style="width:auto" v-model="vrMode" :disabled="!length"><option value="length">자동 · 기준 종단 유지</option><option value="manual">VR 직접 입력</option></select></div>
+        <div class="sub xs" v-if="vrMode==='length'">저장 분석대역(없으면 길이별 권장 대역)에서 종단을 찾고, 표시 대역 변경 시 그 주변만 추적해 VR을 자동 보정합니다.</div>
         <div class="optrow" v-if="vrMode === 'manual' || !length">
           <span>VR</span><input type="range" class="range grow" min="0.30" max="0.90" step="0.001" v-model.number="manualVR">
           <div style="text-align:right;min-width:92px"><div class="mono">{{ manualVR.toFixed(3) }}</div><div class="sub xs mono">TDR {{ tdr }} m/μs</div></div>
@@ -1389,10 +1419,22 @@ const SignatureCompare = {
  *  - ex: 접속지점(exclude, 측정 좌표)마다 반사 곡선 전체를 덮는 제외 구간 (±1.5×분해능 ~ 첫 골, 최대 ±3×분해능)
  *  - stat: 국부신호 판정 기준 = ex를 뺀 케이블 구간의 평균·SD. 표시용 0 dB 기준선·Variance와 무관하다.
  */
-function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed, variance = null, exclude = [] }) {
+const terminalCache = new WeakMap();
+function autoTerminal(data, ref, length, windowName, bandwidthHz) {
+  let cache=terminalCache.get(data);if(!cache){cache=new Map();terminalCache.set(data,cache);}
+  const options={referenceBandwidthHz:ref?.lira?.bandHz, savedVR:ref?.lira?.vr};
+  const key=JSON.stringify([length,windowName,options]);
+  if(!cache.has(key))cache.set(key,Sig.terminalAnchor(data,windowName,length,options));
+  return Sig.terminalAtBand(data,bandwidthHz,windowName,length,cache.get(key));
+}
+function dnormOffset(ref) {
+  const n=ref?.lira?.norm;
+  return n?.offset ?? (n?.sd!=null?n.zero-(n.sigma??1)*n.sd:0);
+}
+function signatureCurve(data, ref, { bwHz, windowName, vr, length, xMax, normalize, reversed, variance = null, exclude = [], terminalTracked = false }) {
   const L = length || null;
   const r = Sig.computeSignature(data, bwHz, windowName, vr, Math.max(xMax, L || 0) * 1.02);
-  let norm = Sig.makeNormalization(r, L, variance ?? 1);
+  let norm = Sig.makeNormalization(r, L, variance ?? 1, terminalTracked?L:null);
   const ln = ref?.lira?.norm, lbw = ref?.lira?.bandHz;
   if (norm && ln && lbw && Math.abs(bwHz - lbw) / lbw < 0.02 && windowName === '4 Term B-H') {
     const sd = ln.sd ?? norm.sd, sig0 = ln.sd != null ? (ln.sigma ?? 1) : 1;
@@ -1412,15 +1454,15 @@ function analysisFor(site, ref, data) {
   const guide = L ? Sig.guidelineBandwidthMHz(L) * 1e6 : null;
   const bwHz = Math.min((site.sigBandwidthMHz ? site.sigBandwidthMHz * 1e6 : null) ?? lb ?? guide ?? data.maxFreq * 0.4, data.maxFreq);
   let vr = 0.55;
-  if (L) { const est = Sig.estimateVR(data, bwHz, windowName, L); if (est) vr = est; }
+  if (L) { const anchor = autoTerminal(data,ref,L,windowName,bwHz); if(!anchor || !['candidate','tracked'].includes(anchor.status))return null; vr=anchor.vr; }
   const xMax = L ? L * 1.05 : vr * Sig.C / (2 * data.df) / 4;
   const variance = site.sigVariance != null && isFinite(site.sigVariance) ? roundVar(site.sigVariance) : null;
-  return { bwHz, windowName, vr, length: L, xMax, variance };
+  return { bwHz, windowName, vr, length: L, xMax, variance, terminalTracked:!!L };
 }
 // ---------------------------------------------------------------------------
 // 판정 계산: 국부신호(접속지점 제외) · 접속지점(상간·개소간 비교)
 
-const EVAL_VERSION = 'e5';
+const EVAL_VERSION = 'e6-terminal-anchor';
 const JOINT_EXCLUDE = 1.5;     // 접속지점 앞뒤 최소 ±1.5×분해능은 국부신호에서 제외
 const JOINT_EXCLUDE_MAX = 3;   // 반사 꼬리가 이어지면 첫 골까지, 최대 ±3×분해능
 const END_EXCLUDE = 2, END_EXCLUDE_MAX = 4;   // 근단·종단 반사: 최소 2, 최대 4×분해능
@@ -1530,6 +1572,7 @@ async function evaluateDiag(d) {
     if (!L) { out[ph] = { local: { key, maxK: null, reason: '긍장 없음' }, joint: { key, dev: null, reason: '긍장 없음' } }; continue; }
     const data = await loadSpectrum(r.spectrum.fileName);
     const an = analysisFor(site, r.spectrum, data);
+    if(!an){out[ph]={local:{key,maxK:null,reason:'자동 종단 미확정'},joint:{key,dev:null,reason:'자동 종단 미확정'}};continue;}
     const rev = !!r.reversed, conv = x => (rev ? L - x : x);   // 구간 좌표 ↔ 측정 좌표
     const own = joints.map(conv);
     const c = signatureCurve(data, r.spectrum, { ...an, normalize: true, reversed: false, exclude: own });
@@ -1572,6 +1615,7 @@ const SignaturePreview = {
       let data;
       try { data = await loadSpectrum(this.refObj.fileName); } catch (e) { this.caption = '스펙트럼을 읽지 못했습니다: ' + e.message; return; }
       const an = analysisFor(this.site, this.refObj, data);
+      if(!an){this.curves=[];this.caption='자동 종단을 확정하지 못했습니다. 길이·저장 VR을 확인하세요.';return;}
       const { bwHz: bw, windowName: win, vr, length: L, xMax: xm } = an;
       const rev = !!(this.reversed && L);
       const c = signatureCurve(data, this.refObj, { ...an, normalize: !!L, reversed: rev, exclude: L ? this.joints.map(x => (rev ? L - x : x)) : [] });
